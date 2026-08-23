@@ -1,8 +1,8 @@
 {
-  "name": "task-comment-activity",
+  "name": "besuchsbericht-voice-app",
   "version": "1.0.0",
   "private": true,
-  "description": "Bitrix24 task comment activity by user (Vibecode app)",
+  "description": "Standalone, PIN-gated, hands-free voice logging of Besuchsberichte (Vibecode/CRM SPA 1126)",
   "main": "server.js",
   "engines": {
     "node": ">=20"
@@ -11,6 +11,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "multer": "^2.1.1"
   }
 }

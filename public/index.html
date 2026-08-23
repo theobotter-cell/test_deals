@@ -1,413 +1,584 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="de">
 <head>
-<meta charset="utf-8">
-<title>Task Comment Activity</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Besuchsbericht</title>
+<link rel="icon" href="/_gw/icon">
 <style>
   :root {
-    --bg: #f5f6f8;
-    --panel: #ffffff;
-    --border: #dfe3e8;
-    --text: #1f2733;
-    --muted: #6b7685;
-    --accent: #2fc6f6;
-    --accent-dark: #1a9fcb;
-    --danger: #e0533d;
-    --warn: #b8860b;
+    --bg: #0f1720;
+    --card: #182430;
+    --card-border: #263242;
+    --text: #f2f5f8;
+    --muted: #93a2b3;
+    --accent: #e2482f;
+    --accent-dark: #b7371f;
+    --ok: #2fae66;
+    --err: #e2482f;
+    --input-bg: #10181f;
   }
-  * { box-sizing: border-box; }
-  body {
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 0;
     background: var(--bg);
     color: var(--text);
-    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100%;
   }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .subtitle { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .screen {
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    padding: 24px 20px;
+    max-width: 520px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .screen.active { display: flex; }
+  h1 {
+    font-size: 1.35rem;
+    margin: 0 0 4px;
+    font-weight: 700;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin: 0 0 28px;
+  }
+  .spacer { flex: 1; }
+
+  /* PIN screen */
+  #pin-screen { justify-content: center; align-items: center; text-align: center; }
+  #pin-form { width: 100%; max-width: 320px; }
+  #pin-input {
+    width: 100%;
+    font-size: 2rem;
+    letter-spacing: 0.6rem;
+    text-align: center;
+    padding: 16px 10px;
+    border-radius: 14px;
+    border: 2px solid var(--card-border);
+    background: var(--input-bg);
+    color: var(--text);
     margin-bottom: 16px;
   }
-  .field { margin-bottom: 14px; }
-  .field label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; }
-  .presets { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-  .presets button {
-    border: 1px solid var(--border);
-    background: #fff;
-    padding: 6px 12px;
-    border-radius: 6px;
+  #pin-input:focus { outline: none; border-color: var(--accent); }
+  .btn {
+    display: block;
+    width: 100%;
+    border: none;
+    border-radius: 16px;
+    padding: 18px;
+    font-size: 1.1rem;
+    font-weight: 700;
     cursor: pointer;
-    font-size: 13px;
+    color: #fff;
+    background: var(--accent);
+    transition: transform 0.08s ease, opacity 0.15s ease;
   }
-  .presets button.active { background: var(--accent); border-color: var(--accent-dark); color: #06323f; font-weight: 600; }
-  .date-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .date-row input[type=date] {
-    padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    background: transparent;
+    border: 2px solid var(--card-border);
+    color: var(--text);
   }
-  #groupSearch {
-    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 10px;
   }
-  #groupList {
-    max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-top: 8px;
+  .error-text {
+    color: var(--err);
+    min-height: 1.3em;
+    margin: 8px 0 0;
+    font-size: 0.95rem;
   }
-  .group-row {
-    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid #eef0f2; font-size: 13px;
+
+  /* Record screen */
+  #ready-screen { justify-content: center; align-items: center; text-align: center; }
+  #record-btn {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-size: 1.15rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 0 rgba(226, 72, 47, 0.5);
+    cursor: pointer;
   }
-  .group-row:last-child { border-bottom: none; }
-  .group-row:hover { background: #fafbfc; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .chip {
-    background: #eaf9fe; border: 1px solid #bfeaf6; color: #0d6a86; border-radius: 14px;
-    padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 6px;
+  #record-btn.recording {
+    background: var(--err);
+    animation: pulse 1.4s infinite;
   }
-  .chip button { border: none; background: none; cursor: pointer; color: #0d6a86; font-weight: 700; padding: 0; }
-  .run-row { display: flex; align-items: center; gap: 12px; }
-  button.primary {
-    background: var(--accent-dark); color: #fff; border: none; padding: 9px 18px;
-    border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(226, 72, 47, 0.55); }
+    70% { box-shadow: 0 0 0 26px rgba(226, 72, 47, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(226, 72, 47, 0); }
   }
-  button.primary:disabled { opacity: 0.5; cursor: default; }
-  button.secondary {
-    background: #fff; border: 1px solid var(--border); padding: 9px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;
+  #timer {
+    margin-top: 22px;
+    font-size: 1.4rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    min-height: 1.6rem;
   }
-  .status-line { color: var(--muted); font-size: 13px; }
-  .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
-  .notice.warn { background: #fff8e6; border: 1px solid #f0e0a8; color: #7a5c00; }
-  .notice.error { background: #fdecea; border: 1px solid #f5c6c0; color: #a3271b; }
-  .notice.info { background: #eaf9fe; border: 1px solid #bfeaf6; color: #0d6a86; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef0f2; font-size: 13px; }
-  th { cursor: pointer; user-select: none; color: var(--muted); font-weight: 600; }
-  th.sorted { color: var(--text); }
-  tr:hover td { background: #fafbfc; }
-  .avatar { width: 24px; height: 24px; border-radius: 50%; vertical-align: middle; margin-right: 8px; background: #ddd; }
-  .user-cell { display: flex; align-items: center; }
-  .empty-state { text-align: center; color: var(--muted); padding: 40px 0; }
-  .progress-bar { height: 6px; background: #eef0f2; border-radius: 3px; overflow: hidden; margin: 10px 0; }
-  .progress-bar-fill { height: 100%; background: var(--accent-dark); width: 0%; transition: width 0.3s; }
+  #ready-hint { color: var(--muted); margin-top: 18px; font-size: 0.95rem; }
+
+  /* Processing */
+  .processing-screen { justify-content: center; align-items: center; text-align: center; }
+  .spinner {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 5px solid var(--card-border);
+    border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+    margin-bottom: 22px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Preview */
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .field input, .field textarea {
+    width: 100%;
+    background: var(--input-bg);
+    border: 2px solid var(--card-border);
+    border-radius: 12px;
+    color: var(--text);
+    padding: 12px 14px;
+    font-size: 1rem;
+    font-family: inherit;
+    resize: vertical;
+  }
+  .field input:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  #preview-form { overflow-y: auto; }
+  .action-row { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+
+  /* Success */
+  #success-screen { justify-content: center; align-items: center; text-align: center; }
+  .success-icon {
+    width: 84px; height: 84px; border-radius: 50%;
+    background: var(--ok);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 20px;
+  }
+  .success-icon svg { width: 44px; height: 44px; }
+
+  /* Error state */
+  #error-screen { justify-content: center; align-items: center; text-align: center; }
+  .error-icon {
+    width: 84px; height: 84px; border-radius: 50%;
+    background: var(--err);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 20px;
+    font-size: 2.5rem;
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Task Comment Activity</h1>
-  <p class="subtitle">Comment counts per user, scoped to project groups and a date range.</p>
 
-  <div class="panel">
-    <div class="field">
-      <label>Project groups</label>
-      <input id="groupSearch" type="text" placeholder="Search project groups…">
-      <div id="groupList"></div>
-      <div class="chips" id="selectedChips"></div>
-    </div>
+  <!-- PIN screen -->
+  <section id="pin-screen" class="screen">
+    <form id="pin-form" autocomplete="off">
+      <h1>Besuchsbericht</h1>
+      <p class="subtitle">Bitte PIN eingeben</p>
+      <input id="pin-input" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="••••" autofocus>
+      <button type="submit" class="btn">Bestätigen</button>
+      <p class="error-text" id="pin-error"></p>
+    </form>
+  </section>
 
-    <div class="field">
-      <label>Date range</label>
-      <div class="presets">
-        <button type="button" data-preset="1m">Last 1 month</button>
-        <button type="button" data-preset="2m">Last 2 months</button>
+  <!-- Ready / record screen -->
+  <section id="ready-screen" class="screen">
+    <button id="record-btn">Aufnahme<br>starten</button>
+    <div id="timer"></div>
+    <p id="ready-hint">Kunde, Datum und nächste Schritte kurz ansagen.</p>
+  </section>
+
+  <!-- Processing: transcribing -->
+  <section id="processing-transcribe-screen" class="screen processing-screen">
+    <div class="spinner"></div>
+    <p>Sprache wird erkannt …</p>
+  </section>
+
+  <!-- Processing: extracting -->
+  <section id="processing-extract-screen" class="screen processing-screen">
+    <div class="spinner"></div>
+    <p>Bericht wird ausgewertet …</p>
+  </section>
+
+  <!-- Processing: submitting -->
+  <section id="processing-submit-screen" class="screen processing-screen">
+    <div class="spinner"></div>
+    <p>Wird gespeichert …</p>
+  </section>
+
+  <!-- Preview / edit screen -->
+  <section id="preview-screen" class="screen">
+    <h1>Prüfen &amp; bestätigen</h1>
+    <p class="subtitle">Bitte alle Felder kontrollieren und bei Bedarf korrigieren.</p>
+    <form id="preview-form">
+      <div class="field">
+        <label for="f-kunde">Kunde</label>
+        <input id="f-kunde" type="text" placeholder="Kundenname">
       </div>
-      <div class="date-row">
-        <input type="date" id="fromDate">
-        <span>to</span>
-        <input type="date" id="toDate">
+      <div class="field">
+        <label for="f-datum">Besuchsdatum</label>
+        <input id="f-datum" type="date">
       </div>
+      <div class="field">
+        <label for="f-todos">Nächste To Do's</label>
+        <textarea id="f-todos" rows="3" placeholder="Nächste Schritte"></textarea>
+      </div>
+      <div class="field">
+        <label for="f-bericht">Bericht (Transkript)</label>
+        <textarea id="f-bericht" rows="6"></textarea>
+      </div>
+    </form>
+    <p class="error-text" id="preview-error"></p>
+    <div class="action-row">
+      <button id="confirm-btn" class="btn">Bestätigen &amp; speichern</button>
+      <button id="discard-btn" class="btn btn-ghost">Verwerfen &amp; neu aufnehmen</button>
     </div>
+  </section>
 
-    <div class="run-row">
-      <button class="primary" id="runBtn">Run report</button>
-      <span class="status-line" id="statusLine"></span>
+  <!-- Success screen -->
+  <section id="success-screen" class="screen">
+    <div class="success-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
     </div>
-    <div class="progress-bar" id="progressBar" style="display:none"><div class="progress-bar-fill" id="progressFill"></div></div>
-  </div>
+    <h1>Gespeichert</h1>
+    <p class="subtitle">Besuchsbericht wurde übermittelt.</p>
+  </section>
 
-  <div id="notices"></div>
-  <div class="panel" id="resultsPanel" style="display:none">
-    <table>
-      <thead>
-        <tr>
-          <th data-sort="userName">User</th>
-          <th data-sort="commentCount">Comments</th>
-          <th data-sort="taskCount">Tasks touched</th>
-        </tr>
-      </thead>
-      <tbody id="resultsBody"></tbody>
-    </table>
-  </div>
-  <div class="empty-state" id="emptyState" style="display:none">No comments found for this selection.</div>
-</div>
+  <!-- Error screen -->
+  <section id="error-screen" class="screen">
+    <div class="error-icon">!</div>
+    <h1 id="error-title">Keine Sprache erkannt</h1>
+    <p class="subtitle" id="error-detail">Bitte erneut versuchen und deutlich sprechen.</p>
+    <button id="retry-btn" class="btn">Erneut versuchen</button>
+  </section>
 
 <script>
-const state = {
-  allGroups: [],
-  selectedGroupIds: new Set(),
-  sortKey: 'commentCount',
-  sortDir: -1,
-  rows: [],
-  pollTimer: null,
-};
+(function () {
+  'use strict';
 
-function fmtDate(d) { return d.toISOString().slice(0, 10); }
-
-function setPreset(kind) {
-  const to = new Date();
-  const from = new Date();
-  if (kind === '1m') from.setMonth(from.getMonth() - 1);
-  if (kind === '2m') from.setMonth(from.getMonth() - 2);
-  document.getElementById('fromDate').value = fmtDate(from);
-  document.getElementById('toDate').value = fmtDate(to);
-  document.querySelectorAll('.presets button').forEach((b) => b.classList.toggle('active', b.dataset.preset === kind));
-}
-
-document.querySelectorAll('.presets button').forEach((b) => {
-  b.addEventListener('click', () => setPreset(b.dataset.preset));
-});
-document.getElementById('fromDate').addEventListener('change', () => {
-  document.querySelectorAll('.presets button').forEach((b) => b.classList.remove('active'));
-});
-document.getElementById('toDate').addEventListener('change', () => {
-  document.querySelectorAll('.presets button').forEach((b) => b.classList.remove('active'));
-});
-setPreset('1m');
-
-async function loadGroups(search) {
-  const res = await fetch('/api/workgroups' + (search ? '?search=' + encodeURIComponent(search) : ''));
-  const body = await res.json();
-  if (!res.ok) {
-    showNotice('error', 'Could not load project groups: ' + (body.error ? body.error.message : res.status));
-    return;
-  }
-  state.allGroups = body.data || [];
-  renderGroupList();
-}
-
-function renderGroupList() {
-  const list = document.getElementById('groupList');
-  list.innerHTML = '';
-  if (state.allGroups.length === 0) {
-    list.innerHTML = '<div class="group-row" style="color:#999">No matching groups</div>';
-    return;
-  }
-  for (const g of state.allGroups) {
-    const row = document.createElement('label');
-    row.className = 'group-row';
-    const checked = state.selectedGroupIds.has(g.id);
-    row.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''} data-id="${g.id}"> <span>${escapeHtml(g.name)}</span>`;
-    row.querySelector('input').addEventListener('change', (e) => {
-      if (e.target.checked) state.selectedGroupIds.add(g.id);
-      else state.selectedGroupIds.delete(g.id);
-      renderChips();
+  var screens = ['pin', 'ready', 'processing-transcribe', 'processing-extract', 'processing-submit', 'preview', 'success', 'error'];
+  function setState(name) {
+    screens.forEach(function (s) {
+      document.getElementById(s + '-screen').classList.toggle('active', s === name);
     });
-    list.appendChild(row);
-  }
-}
-
-function renderChips() {
-  const chips = document.getElementById('selectedChips');
-  chips.innerHTML = '';
-  for (const id of state.selectedGroupIds) {
-    const g = state.allGroups.find((x) => x.id === id);
-    const name = g ? g.name : `Group ${id}`;
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.innerHTML = `${escapeHtml(name)} <button type="button" aria-label="remove">×</button>`;
-    chip.querySelector('button').addEventListener('click', () => {
-      state.selectedGroupIds.delete(id);
-      renderGroupList();
-      renderChips();
-    });
-    chips.appendChild(chip);
-  }
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-let searchTimer = null;
-document.getElementById('groupSearch').addEventListener('input', (e) => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => loadGroups(e.target.value.trim()), 250);
-});
-
-loadGroups('');
-
-function showNotice(kind, text) {
-  const notices = document.getElementById('notices');
-  const div = document.createElement('div');
-  div.className = 'notice ' + kind;
-  div.textContent = text;
-  notices.appendChild(div);
-}
-function clearNotices() { document.getElementById('notices').innerHTML = ''; }
-
-function setProgress(scanned, total) {
-  const bar = document.getElementById('progressBar');
-  const fill = document.getElementById('progressFill');
-  if (!total) { bar.style.display = 'none'; return; }
-  bar.style.display = 'block';
-  fill.style.width = Math.min(100, Math.round((scanned / total) * 100)) + '%';
-}
-
-async function runReport() {
-  clearNotices();
-  document.getElementById('resultsPanel').style.display = 'none';
-  document.getElementById('emptyState').style.display = 'none';
-
-  if (state.selectedGroupIds.size === 0) {
-    showNotice('warn', 'Select at least one project group.');
-    return;
-  }
-  const from = document.getElementById('fromDate').value;
-  const to = document.getElementById('toDate').value;
-  if (!from || !to) {
-    showNotice('warn', 'Pick a date range.');
-    return;
   }
 
-  const runBtn = document.getElementById('runBtn');
-  runBtn.disabled = true;
-  document.getElementById('statusLine').textContent = 'Starting…';
-
-  const body = { groupIds: [...state.selectedGroupIds], from: from + 'T00:00:00.000Z', to: to + 'T23:59:59.999Z' };
-
-  try {
-    const res = await fetch('/api/report', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      showNotice('error', data.error ? data.error.message : 'Failed to start report.');
-      runBtn.disabled = false;
-      return;
-    }
-    if (data.cached) {
-      renderResult(data.result);
-      runBtn.disabled = false;
-      document.getElementById('statusLine').textContent = 'From cache.';
-      return;
-    }
-    pollJob(data.jobId, body);
-  } catch (e) {
-    showNotice('error', 'Network error: ' + e.message);
-    runBtn.disabled = false;
+  function authHeaders() {
+    var token = sessionStorage.getItem('vt') || '';
+    return { 'Authorization': 'Bearer ' + token };
   }
-}
 
-function pollJob(jobId, body) {
-  const runBtn = document.getElementById('runBtn');
-  clearTimeout(state.pollTimer);
-  const tick = async () => {
-    try {
-      const res = await fetch('/api/report/' + jobId);
-      const data = await res.json();
+  function handleUnauthorized() {
+    sessionStorage.removeItem('vt');
+    document.getElementById('pin-error').textContent = 'Sitzung abgelaufen. Bitte PIN erneut eingeben.';
+    setState('pin');
+  }
+
+  // ---- PIN ----
+  var pinForm = document.getElementById('pin-form');
+  var pinInput = document.getElementById('pin-input');
+  var pinError = document.getElementById('pin-error');
+
+  pinForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    pinError.textContent = '';
+    var pin = pinInput.value.trim();
+    if (!pin) return;
+    fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: pin })
+    }).then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (res) {
       if (!res.ok) {
-        showNotice('error', data.error ? data.error.message : 'Report job lost.');
-        runBtn.disabled = false;
-        setProgress(0, 0);
+        pinInput.value = '';
+        pinInput.focus();
+        if (res.data && res.data.error === 'LOCKED') {
+          pinError.textContent = 'Zu viele Fehlversuche. Bitte kurz warten.';
+        } else {
+          pinError.textContent = 'Falscher PIN.';
+        }
         return;
       }
-      if (data.status === 'needs-confirmation') {
-        setProgress(0, 0);
-        document.getElementById('statusLine').textContent = '';
-        const conf = data.confirmation;
-        showNotice('warn', `This selection has ${conf.taskCount} tasks (above the ${conf.cap} soft cap). Scanning may take a while.`);
-        const proceed = document.createElement('button');
-        proceed.textContent = `Scan all ${conf.taskCount} tasks anyway`;
-        proceed.className = 'secondary';
-        proceed.style.marginLeft = '8px';
-        proceed.addEventListener('click', async () => {
-          proceed.disabled = true;
-          await fetch('/api/report/' + jobId + '/confirm', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-          });
-          document.getElementById('statusLine').textContent = 'Scanning…';
-          state.pollTimer = setTimeout(tick, 800);
-        });
-        document.getElementById('notices').lastChild.appendChild(proceed);
-        return;
-      }
-      if (data.status === 'error') {
-        showNotice('error', data.error ? data.error.message : 'Report failed.');
-        runBtn.disabled = false;
-        setProgress(0, 0);
-        return;
-      }
-      if (data.status === 'done') {
-        setProgress(0, 0);
-        document.getElementById('statusLine').textContent = '';
-        runBtn.disabled = false;
-        renderResult(data.result);
-        return;
-      }
-      const label = {
-        'starting': 'Starting…',
-        'fetching-tasks': 'Finding tasks…',
-        'scanning-comments': `Scanning comments… (${data.scannedTasks || 0} of ${data.totalTasks || '?'} tasks)`,
-        'resolving-users': 'Resolving user names…',
-      }[data.status] || data.status;
-      document.getElementById('statusLine').textContent = label;
-      setProgress(data.scannedTasks || 0, data.totalTasks || 0);
-      state.pollTimer = setTimeout(tick, 800);
-    } catch (e) {
-      showNotice('error', 'Network error while polling: ' + e.message);
-      runBtn.disabled = false;
+      sessionStorage.setItem('vt', res.data.token);
+      setState('ready');
+    }).catch(function () {
+      pinError.textContent = 'Netzwerkfehler. Bitte erneut versuchen.';
+    });
+  });
+
+  // ---- Recording ----
+  var recordBtn = document.getElementById('record-btn');
+  var timerEl = document.getElementById('timer');
+  var mediaRecorder = null;
+  var chunks = [];
+  var mediaStream = null;
+  var timerHandle = null;
+  var recordStart = 0;
+  var transcript = '';
+  var isRecording = false;
+
+  function pickMimeType() {
+    var candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/ogg'];
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+    for (var i = 0; i < candidates.length; i++) {
+      if (MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
     }
-  };
-  tick();
-}
-
-function renderResult(result) {
-  state.rows = result.rows || [];
-  const s = result.summary || {};
-  if (s.failedTasks) showNotice('warn', `${s.failedTasks} task(s) could not be read and were excluded from the counts.`);
-  if (s.truncatedTasks) showNotice('info', `${s.truncatedTasks} task(s) had more comments in range than could be fully scanned in one pass — their counts may be a lower bound.`);
-  if (state.rows.length === 0) {
-    document.getElementById('emptyState').style.display = 'block';
-    document.getElementById('resultsPanel').style.display = 'none';
-    return;
+    return '';
   }
-  document.getElementById('resultsPanel').style.display = 'block';
-  sortAndRender();
-}
 
-function sortAndRender() {
-  const { sortKey, sortDir } = state;
-  const rows = [...state.rows].sort((a, b) => {
-    const av = a[sortKey], bv = b[sortKey];
-    if (typeof av === 'string') return sortDir * av.localeCompare(bv);
-    return sortDir * (av - bv);
-  });
-  const tbody = document.getElementById('resultsBody');
-  tbody.innerHTML = '';
-  for (const r of rows) {
-    const tr = document.createElement('tr');
-    const avatar = r.avatar
-      ? `<img class="avatar" src="${r.avatar}" alt="">`
-      : `<span class="avatar"></span>`;
-    tr.innerHTML = `<td><span class="user-cell">${avatar}${escapeHtml(r.userName)}</span></td><td>${r.commentCount}</td><td>${r.taskCount}</td>`;
-    tbody.appendChild(tr);
+  function fmtTime(ms) {
+    var s = Math.floor(ms / 1000);
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r;
   }
-  document.querySelectorAll('th[data-sort]').forEach((th) => {
-    th.classList.toggle('sorted', th.dataset.sort === sortKey);
-  });
-}
 
-document.querySelectorAll('th[data-sort]').forEach((th) => {
-  th.addEventListener('click', () => {
-    const key = th.dataset.sort;
-    if (state.sortKey === key) state.sortDir *= -1;
-    else { state.sortKey = key; state.sortDir = -1; }
-    sortAndRender();
-  });
-});
+  function startTimer() {
+    recordStart = Date.now();
+    timerEl.textContent = '00:00';
+    timerHandle = setInterval(function () {
+      timerEl.textContent = fmtTime(Date.now() - recordStart);
+    }, 250);
+  }
 
-document.getElementById('runBtn').addEventListener('click', runReport);
+  function stopTimer() {
+    if (timerHandle) clearInterval(timerHandle);
+    timerHandle = null;
+  }
+
+  function showError(title, detail) {
+    document.getElementById('error-title').textContent = title;
+    document.getElementById('error-detail').textContent = detail || '';
+    setState('error');
+  }
+
+  recordBtn.addEventListener('click', function () {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  });
+
+  function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      showError('Aufnahme nicht unterstützt', 'Dieser Browser unterstützt keine Sprachaufnahme. Bitte Chrome oder Safari (aktuelle Version) verwenden.');
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      mediaStream = stream;
+      chunks = [];
+      var mimeType = pickMimeType();
+      try {
+        mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+      } catch (e) {
+        showError('Aufnahme fehlgeschlagen', 'Die Sprachaufnahme konnte nicht gestartet werden.');
+        stopStream();
+        return;
+      }
+      mediaRecorder.ondataavailable = function (e) {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+      mediaRecorder.onstop = onRecordingStopped;
+      mediaRecorder.start();
+      isRecording = true;
+      recordBtn.classList.add('recording');
+      recordBtn.innerHTML = 'Aufnahme<br>stoppen';
+      startTimer();
+    }).catch(function () {
+      showError('Kein Mikrofonzugriff', 'Bitte erlaube den Mikrofonzugriff in den Browsereinstellungen und versuche es erneut.');
+    });
+  }
+
+  function stopStream() {
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(function (t) { t.stop(); });
+      mediaStream = null;
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    stopStream();
+    stopTimer();
+    isRecording = false;
+    recordBtn.classList.remove('recording');
+    recordBtn.innerHTML = 'Aufnahme<br>starten';
+  }
+
+  function onRecordingStopped() {
+    setState('processing-transcribe');
+    var mimeType = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
+    var blob = new Blob(chunks, { type: mimeType });
+
+    if (!blob || blob.size < 800) {
+      setState('ready');
+      showError('Keine Sprache erkannt', 'Es wurde keine Aufnahme erkannt. Bitte erneut versuchen.');
+      return;
+    }
+
+    var ext = mimeType.indexOf('mp4') !== -1 ? 'm4a' : (mimeType.indexOf('ogg') !== -1 ? 'ogg' : 'webm');
+    var form = new FormData();
+    form.append('audio', blob, 'aufnahme.' + ext);
+
+    fetch('/api/transcribe', { method: 'POST', headers: authHeaders(), body: form })
+      .then(function (r) {
+        if (r.status === 401) { handleUnauthorized(); return null; }
+        return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+      })
+      .then(function (res) {
+        if (!res) return;
+        if (!res.ok) {
+          showError('Fehler bei der Spracherkennung', 'Bitte erneut versuchen.');
+          return;
+        }
+        var text = (res.data.text || '').trim();
+        if (text.length < 3) {
+          showError('Keine Sprache erkannt', 'Es konnte kein Text erkannt werden. Bitte erneut versuchen und deutlich sprechen.');
+          return;
+        }
+        transcript = text;
+        runExtraction();
+      })
+      .catch(function () {
+        showError('Netzwerkfehler', 'Bitte erneut versuchen.');
+      });
+  }
+
+  function runExtraction() {
+    setState('processing-extract');
+    fetch('/api/extract', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+      body: JSON.stringify({ transcript: transcript })
+    }).then(function (r) {
+      if (r.status === 401) { handleUnauthorized(); return null; }
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (res) {
+      if (!res) return;
+      if (!res.ok) {
+        showError('Fehler bei der Auswertung', 'Der Bericht konnte nicht ausgewertet werden. Bitte erneut versuchen.');
+        return;
+      }
+      fillPreview(transcript, res.data.kunde, res.data.besuchsdatum, res.data.naechsteTodos);
+      setState('preview');
+    }).catch(function () {
+      showError('Netzwerkfehler', 'Bitte erneut versuchen.');
+    });
+  }
+
+  // ---- Preview / submit ----
+  var fKunde = document.getElementById('f-kunde');
+  var fDatum = document.getElementById('f-datum');
+  var fTodos = document.getElementById('f-todos');
+  var fBericht = document.getElementById('f-bericht');
+  var previewError = document.getElementById('preview-error');
+
+  function fillPreview(bericht, kunde, datum, todos) {
+    fBericht.value = bericht || '';
+    fKunde.value = kunde || '';
+    fDatum.value = datum || '';
+    fTodos.value = todos || '';
+    previewError.textContent = '';
+  }
+
+  document.getElementById('discard-btn').addEventListener('click', function () {
+    setState('ready');
+  });
+
+  document.getElementById('confirm-btn').addEventListener('click', function () {
+    previewError.textContent = '';
+    if (fBericht.value.trim().length < 3) {
+      previewError.textContent = 'Bericht darf nicht leer sein.';
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fDatum.value)) {
+      previewError.textContent = 'Bitte ein gültiges Besuchsdatum wählen.';
+      return;
+    }
+    setState('processing-submit');
+    fetch('/api/submit', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+      body: JSON.stringify({
+        bericht: fBericht.value.trim(),
+        kunde: fKunde.value.trim(),
+        besuchsdatum: fDatum.value,
+        naechsteTodos: fTodos.value.trim()
+      })
+    }).then(function (r) {
+      if (r.status === 401) { handleUnauthorized(); return null; }
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (res) {
+      if (!res) return;
+      if (!res.ok) {
+        setState('preview');
+        previewError.textContent = 'Speichern fehlgeschlagen. Bitte erneut versuchen.';
+        return;
+      }
+      setState('success');
+      setTimeout(function () { setState('ready'); }, 2200);
+    }).catch(function () {
+      setState('preview');
+      previewError.textContent = 'Netzwerkfehler. Bitte erneut versuchen.';
+    });
+  });
+
+  document.getElementById('retry-btn').addEventListener('click', function () {
+    transcript = '';
+    setState('ready');
+  });
+
+  // ---- Init ----
+  (function init() {
+    var token = sessionStorage.getItem('vt');
+    if (token) {
+      fetch('/api/session', { headers: authHeaders() }).then(function (r) {
+        if (r.ok) { setState('ready'); return; }
+        sessionStorage.removeItem('vt');
+        setState('pin');
+      }).catch(function () {
+        setState('pin');
+      });
+    } else {
+      setState('pin');
+    }
+  })();
+})();
 </script>
 </body>
 </html>

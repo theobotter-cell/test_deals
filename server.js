@@ -1,349 +1,285 @@
 const express = require('express');
+const multer = require('multer');
 const crypto = require('crypto');
 const path = require('path');
 
-const VIBE_BASE_URL = process.env.VIBE_BASE_URL || 'https://vibecode.bitrix24.com/v1';
+const app = express();
+app.disable('x-powered-by');
+app.use(express.json({ limit: '1mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
 const VIBE_API_KEY = process.env.VIBE_API_KEY || '';
-const TASK_SCAN_CAP = Number(process.env.TASK_SCAN_CAP || 500);
-const PORT = process.env.PORT || 3000;
+const APP_PIN = process.env.APP_PIN || '';
+const VIBE_BASE = 'https://vibecode.bitrix24.com/v1';
+const ENTITY_TYPE_ID = 1126;
+const FIELD_BERICHT = 'ufCrm79_1787525651154';
+const FIELD_KUNDE = 'ufCrm79_1787525659286';
+const FIELD_BESUCHSDATUM = 'ufCrm79_1787525674336';
+const FIELD_TODOS = 'ufCrm79_1787525690078';
+const AI_MODEL = 'bitrix/bitrixgpt-5.5';
 
 if (!VIBE_API_KEY) {
-  console.error('FATAL: VIBE_API_KEY is not set. Set it via the deploy env so this server can call the Vibecode API as its owner.');
+  console.error('WARNING: VIBE_API_KEY is not set. Calls to the Vibecode API will fail.');
+}
+if (!APP_PIN) {
+  console.error('WARNING: APP_PIN is not set. Nobody will be able to log in.');
 }
 
-// ---------------------------------------------------------------------------
-// Rate limiter: Vibecode enforces 10 req/s per key. Stay under it with a
-// sliding-window gate shared by every outbound call this process makes.
-// ---------------------------------------------------------------------------
-class RateLimiter {
-  constructor(maxPerWindow, windowMs) {
-    this.maxPerWindow = maxPerWindow;
-    this.windowMs = windowMs;
-    this.timestamps = [];
-    this.queue = [];
-  }
-  acquire() {
-    return new Promise((resolve) => {
-      this.queue.push(resolve);
-      this._pump();
-    });
-  }
-  _pump() {
-    if (this.queue.length === 0) return;
-    const now = Date.now();
-    this.timestamps = this.timestamps.filter((t) => now - t < this.windowMs);
-    if (this.timestamps.length < this.maxPerWindow) {
-      this.timestamps.push(now);
-      const resolve = this.queue.shift();
-      resolve();
-      if (this.queue.length > 0) setImmediate(() => this._pump());
-    } else {
-      const waitFor = this.windowMs - (now - this.timestamps[0]) + 5;
-      setTimeout(() => this._pump(), waitFor);
-    }
-  }
-}
-const limiter = new RateLimiter(8, 1000);
+// ---- Sessions (in-memory; simple deterrent, not bank-grade security) ----
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+const sessions = new Map(); // token -> expiry timestamp
 
-async function vibeFetch(pathAndQuery, options = {}) {
-  await limiter.acquire();
-  const url = `${VIBE_BASE_URL}${pathAndQuery}`;
-  const headers = Object.assign(
-    { 'X-Api-Key': VIBE_API_KEY },
-    options.body ? { 'Content-Type': 'application/json' } : {},
-    options.headers || {}
-  );
-  const res = await fetch(url, {
-    method: options.method || 'GET',
-    headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-
-  if (res.status === 429) {
-    const retryAfter = Number(res.headers.get('Retry-After') || '2');
-    await new Promise((r) => setTimeout(r, Math.min(retryAfter, 10) * 1000));
-    return vibeFetch(pathAndQuery, options);
-  }
-
-  const json = await res.json().catch(() => ({ success: false, error: { code: 'BAD_JSON', message: 'Non-JSON response' } }));
-  return { ok: res.ok && json.success !== false, status: res.status, json };
+function issueSession() {
+  const token = crypto.randomBytes(24).toString('hex');
+  sessions.set(token, Date.now() + SESSION_TTL_MS);
+  return token;
 }
 
-// Query-string builder matching the Vibecode API's per-param conventions:
-// filter is a raw JSON blob, select is comma-joined, sort/order use bracket
-// notation, everything else is a plain scalar.
-function qs(params) {
-  const parts = [];
-  for (const [k, v] of Object.entries(params)) {
-    if (v === undefined || v === null) continue;
-    if (k === 'filter') {
-      parts.push(`filter=${encodeURIComponent(JSON.stringify(v))}`);
-    } else if (k === 'select' && Array.isArray(v)) {
-      parts.push(`select=${encodeURIComponent(v.join(','))}`);
-    } else if ((k === 'sort' || k === 'order') && v && typeof v === 'object' && !Array.isArray(v)) {
-      for (const [field, dir] of Object.entries(v)) {
-        parts.push(`${k}[${encodeURIComponent(field)}]=${encodeURIComponent(dir)}`);
-      }
-    } else if (typeof v === 'object') {
-      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(JSON.stringify(v))}`);
-    } else {
-      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
-    }
+function isValidSession(token) {
+  if (!token) return false;
+  const exp = sessions.get(token);
+  if (!exp) return false;
+  if (Date.now() > exp) {
+    sessions.delete(token);
+    return false;
   }
-  return parts.length ? `?${parts.join('&')}` : '';
+  return true;
 }
-
-// ---------------------------------------------------------------------------
-// In-memory job store (per-run report generation) + short result cache.
-// Not persisted across a redeploy or a sleep/wake cycle - see README.
-// ---------------------------------------------------------------------------
-const jobs = new Map();
-const resultCache = new Map();
-const CACHE_TTL_MS = 5 * 60 * 1000;
-const JOB_TTL_MS = 30 * 60 * 1000;
 
 setInterval(() => {
   const now = Date.now();
-  for (const [id, job] of jobs) {
-    if (now - job.createdAt > JOB_TTL_MS) jobs.delete(id);
+  for (const [token, exp] of sessions) {
+    if (now > exp) sessions.delete(token);
   }
-  for (const [key, entry] of resultCache) {
-    if (now - entry.at > CACHE_TTL_MS) resultCache.delete(key);
-  }
-}, 60 * 1000).unref();
+}, 10 * 60 * 1000).unref();
 
-function cacheKey(groupIds, from, to) {
-  return JSON.stringify({ g: [...groupIds].sort((a, b) => a - b), from, to });
+function requireSession(req, res, next) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  if (!isValidSession(token)) {
+    return res.status(401).json({ error: 'UNAUTHORIZED' });
+  }
+  next();
 }
 
-// ---------------------------------------------------------------------------
-// Core report logic
-// ---------------------------------------------------------------------------
-async function fetchAllTasks(groupIds) {
-  const filter = { groupId: { $in: groupIds } };
-  const { ok, status, json } = await vibeFetch(
-    `/tasks${qs({ filter, select: ['id', 'groupId', 'title'], limit: 5000, withTotal: true })}`
-  );
-  if (!ok) {
-    const err = new Error(json.error ? json.error.message : `HTTP ${status}`);
-    err.code = json.error ? json.error.code : 'UNKNOWN_ERROR';
-    throw err;
-  }
-  return json.data || [];
+function pinMatches(input) {
+  if (!APP_PIN || typeof input !== 'string' || input.length === 0) return false;
+  const a = Buffer.from(input);
+  const b = Buffer.from(APP_PIN);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
-async function fetchTaskCommentsInRange(taskId, from, to) {
-  const filter = { '>=POST_DATE': from, '<=POST_DATE': to };
-  const seen = new Set();
-  const comments = [];
-  let offset = 0;
-  let truncated = false;
-  for (let page = 0; page < 5; page++) {
-    const { ok, status, json } = await vibeFetch(
-      `/tasks/${taskId}/comments${qs({ filter, limit: 200, offset, sort: 'id:asc' })}`
-    );
-    if (!ok) {
-      const err = new Error(json.error ? json.error.message : `HTTP ${status}`);
-      err.code = json.error ? json.error.code : 'UNKNOWN_ERROR';
-      throw err;
-    }
-    const data = json.data || [];
-    let newCount = 0;
-    for (const c of data) {
-      if (!seen.has(c.id)) {
-        seen.add(c.id);
-        comments.push(c);
-        newCount++;
-      }
-    }
-    if (json.meta && json.meta.truncated) truncated = true;
-    if (!json.meta || !json.meta.hasMore) break;
-    if (newCount === 0) {
-      // offset is not honored on this read path (old-card filtered list) - stop rather than loop forever.
-      truncated = true;
-      break;
-    }
-    offset += data.length;
-    if (page === 4 && json.meta.hasMore) truncated = true;
-  }
-  return { comments, truncated };
+// Basic brute-force deterrent per IP.
+const failedAttempts = new Map(); // ip -> { count, lockUntil }
+
+function getIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
+  return req.socket.remoteAddress || 'unknown';
 }
 
-async function resolveUsers(authorIds) {
-  const ids = [...authorIds];
-  const byId = new Map();
-  const chunkSize = 50;
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const chunk = ids.slice(i, i + chunkSize);
-    const { ok, json } = await vibeFetch(
-      `/users${qs({ filter: { id: { $in: chunk } }, select: ['id', 'name', 'lastName', 'personalPhoto'], limit: 50 })}`
-    );
-    if (ok) {
-      for (const u of json.data || []) byId.set(Number(u.id), u);
-    }
+app.post('/api/login', (req, res) => {
+  const ip = getIp(req);
+  const now = Date.now();
+  const rec = failedAttempts.get(ip);
+  if (rec && rec.lockUntil > now) {
+    return res.status(429).json({ error: 'LOCKED', retryAfterMs: rec.lockUntil - now });
   }
-  return byId;
-}
 
-// ---------------------------------------------------------------------------
-// HTTP API
-// ---------------------------------------------------------------------------
-const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.get('/health', (req, res) => res.json({ ok: true }));
-
-app.get('/api/workgroups', async (req, res) => {
-  const search = (req.query.search || '').toString().trim();
-  const filter = { archived: 'N' };
-  if (search) filter['%name'] = search;
-  try {
-    const { ok, status, json } = await vibeFetch(
-      `/workgroups${qs({ filter, select: ['id', 'name', 'isProject'], sort: { name: 'ASC' }, limit: 500 })}`
-    );
-    if (!ok) return res.status(status || 502).json({ error: json.error || { message: 'Failed to list workgroups' } });
-    res.json({ data: json.data || [], total: json.meta ? json.meta.total : undefined });
-  } catch (e) {
-    res.status(502).json({ error: { message: e.message } });
+  const pin = req.body && typeof req.body.pin !== 'undefined' ? String(req.body.pin) : '';
+  if (!pinMatches(pin)) {
+    const count = (rec ? rec.count : 0) + 1;
+    const lockUntil = count >= 5 ? now + 60_000 : 0;
+    failedAttempts.set(ip, { count, lockUntil });
+    return res.status(401).json({ error: 'INVALID_PIN' });
   }
+
+  failedAttempts.delete(ip);
+  const token = issueSession();
+  res.json({ token });
 });
 
-app.post('/api/report', (req, res) => {
-  const { groupIds, from, to, force } = req.body || {};
-  if (!Array.isArray(groupIds) || groupIds.length === 0) {
-    return res.status(400).json({ error: { code: 'NO_GROUPS', message: 'Select at least one project group.' } });
-  }
-  const fromIso = from ? new Date(from).toISOString() : null;
-  const toIso = to ? new Date(to).toISOString() : null;
-  if (!fromIso || !toIso || fromIso > toIso) {
-    return res.status(400).json({ error: { code: 'BAD_RANGE', message: 'Invalid date range.' } });
-  }
-
-  const cached = resultCache.get(cacheKey(groupIds, fromIso, toIso));
-  if (cached) {
-    return res.json({ jobId: null, cached: true, result: cached.result });
-  }
-
-  const jobId = crypto.randomUUID();
-  const job = { id: jobId, status: 'starting', createdAt: Date.now(), totalTasks: 0, scannedTasks: 0 };
-  jobs.set(jobId, job);
-
-  (async () => {
-    try {
-      job.status = 'fetching-tasks';
-      const tasks = await fetchAllTasks(groupIds);
-      if (tasks.length > TASK_SCAN_CAP && !force) {
-        job.status = 'needs-confirmation';
-        job.confirmation = { taskCount: tasks.length, cap: TASK_SCAN_CAP };
-        return;
-      }
-      job.totalTasks = tasks.length;
-      job.status = 'scanning-comments';
-      // re-run through the shared runner, reusing the already-fetched task list
-      await runReportWithTasks(job, tasks, groupIds, fromIso, toIso);
-    } catch (e) {
-      job.status = 'error';
-      job.error = { code: e.code || 'UNKNOWN_ERROR', message: e.message || 'Unknown error' };
-    }
-  })();
-
-  res.json({ jobId, cached: false });
-});
-
-async function runReportWithTasks(job, tasks, groupIds, from, to) {
-  const tally = new Map();
-  let failedTasks = 0;
-  let truncatedTasks = 0;
-  const CONCURRENCY = 6;
-  let cursor = 0;
-  async function worker() {
-    while (cursor < tasks.length) {
-      const idx = cursor++;
-      const task = tasks[idx];
-      try {
-        const { comments, truncated } = await fetchTaskCommentsInRange(task.id, from, to);
-        if (truncated) truncatedTasks++;
-        for (const c of comments) {
-          const authorId = Number(c.authorId);
-          if (!tally.has(authorId)) tally.set(authorId, { commentCount: 0, taskIds: new Set() });
-          const entry = tally.get(authorId);
-          entry.commentCount++;
-          entry.taskIds.add(task.id);
-        }
-      } catch (e) {
-        failedTasks++;
-      }
-      job.scannedTasks++;
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length || 1) }, worker));
-
-  job.status = 'resolving-users';
-  const authorIds = [...tally.keys()];
-  const users = await resolveUsers(authorIds);
-
-  const rows = authorIds.map((authorId) => {
-    const entry = tally.get(authorId);
-    const u = users.get(authorId);
-    return {
-      userId: authorId,
-      userName: u ? `${u.name || ''} ${u.lastName || ''}`.trim() || `User ${authorId}` : `User ${authorId} (not found)`,
-      avatar: u ? u.personalPhoto || null : null,
-      commentCount: entry.commentCount,
-      taskCount: entry.taskIds.size,
-    };
-  });
-  rows.sort((a, b) => b.commentCount - a.commentCount);
-
-  job.result = {
-    rows,
-    summary: {
-      totalTasks: tasks.length,
-      scannedTasks: job.scannedTasks,
-      failedTasks,
-      truncatedTasks,
-      totalComments: rows.reduce((s, r) => s + r.commentCount, 0),
-    },
-  };
-  job.status = 'done';
-  resultCache.set(cacheKey(groupIds, from, to), { at: Date.now(), result: job.result });
-}
-
-app.post('/api/report/:jobId/confirm', (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job || job.status !== 'needs-confirmation') {
-    return res.status(404).json({ error: { message: 'No pending confirmation for this job.' } });
-  }
-  const { groupIds, from, to } = req.body || {};
-  job.status = 'fetching-tasks';
-  (async () => {
-    try {
-      const tasks = await fetchAllTasks(groupIds);
-      job.totalTasks = tasks.length;
-      job.status = 'scanning-comments';
-      await runReportWithTasks(job, tasks, groupIds, from, to);
-    } catch (e) {
-      job.status = 'error';
-      job.error = { code: e.code || 'UNKNOWN_ERROR', message: e.message || 'Unknown error' };
-    }
-  })();
+app.get('/api/session', requireSession, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/report/:jobId', (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: { message: 'Job not found (it may have expired).' } });
-  res.json({
-    status: job.status,
-    totalTasks: job.totalTasks,
-    scannedTasks: job.scannedTasks,
-    confirmation: job.confirmation,
-    error: job.error,
-    result: job.status === 'done' ? job.result : undefined,
-  });
+function todayBerlin() {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Berlin' }).format(new Date());
+}
+
+function weekdayBerlin() {
+  return new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', weekday: 'long' }).format(new Date());
+}
+
+function addDaysToDateStr(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const WEEKDAYS_DE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+
+// Precompute a lookup table of relative German date expressions -> concrete
+// dates, so the model only has to pick the right entry instead of doing
+// date arithmetic itself (small/free models are unreliable at that).
+function relativeDateTable(todayStr) {
+  const table = { heute: todayStr, gestern: addDaysToDateStr(todayStr, -1), vorgestern: addDaysToDateStr(todayStr, -2) };
+  const todayDow = new Date(todayStr + 'T00:00:00Z').getUTCDay();
+  for (let back = 1; back <= 7; back++) {
+    const dow = (todayDow - back + 7) % 7;
+    const name = WEEKDAYS_DE[dow];
+    if (!(name in table)) table[name] = addDaysToDateStr(todayStr, -back);
+  }
+  return table;
+}
+
+app.post('/api/transcribe', requireSession, upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
+      return res.status(400).json({ error: 'NO_AUDIO' });
+    }
+
+    const form = new FormData();
+    const blob = new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/webm' });
+    form.append('file', blob, 'aufnahme.webm');
+    form.append('language', 'de');
+    form.append('response_format', 'json');
+
+    const r = await fetch(`${VIBE_BASE}/audio/transcriptions`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': VIBE_API_KEY },
+      body: form,
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      console.error('transcribe upstream error', data);
+      return res.status(502).json({ error: 'TRANSCRIBE_FAILED', detail: (data && data.error && data.error.message) || 'unknown' });
+    }
+    const text = ((data && data.text) || '').trim();
+    res.json({ text });
+  } catch (err) {
+    console.error('transcribe error', err);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
 });
 
+app.post('/api/extract', requireSession, async (req, res) => {
+  try {
+    const transcript = req.body && typeof req.body.transcript === 'string' ? req.body.transcript : '';
+    if (transcript.trim().length < 3) {
+      return res.status(400).json({ error: 'EMPTY_TRANSCRIPT' });
+    }
+
+    const today = todayBerlin();
+    const weekday = weekdayBerlin();
+    const dateTable = relativeDateTable(today);
+
+    const system = `Du bist ein Assistent, der aus dem Transkript eines mündlich diktierten Kundenbesuchsberichts (Deutsch, oft Umgangssprache) strukturierte Daten extrahiert.
+Heutiges Datum: ${today} (${weekday}), Zeitzone Europe/Berlin.
+Tabelle bekannter relativer Datumsangaben, bereits für dich berechnet (Schlüssel -> YYYY-MM-DD):
+${JSON.stringify(dateTable, null, 2)}
+Wird im Transkript einer dieser Begriffe (oder ein Wochentag wie "letzten Montag", "am Dienstag") genannt, verwende GENAU den zugehörigen Wert aus der Tabelle für "besuchsdatum" - rechne selbst nichts um. Wird stattdessen ein explizites Datum genannt (z. B. "am 3. März" oder "12.05."), wandle es selbst in YYYY-MM-DD um (fehlt das Jahr, nimm das Jahr von ${today}). Wird gar kein Datum erwähnt, verwende das heutige Datum: ${today}.
+Gib ausschließlich ein einziges JSON-Objekt mit genau diesen drei Feldern zurück, ohne jeglichen weiteren Text:
+{
+  "kunde": string,        // Name des besuchten Kunden/Unternehmens als Freitext. Leerer String, wenn nicht erkennbar.
+  "besuchsdatum": string, // Datum des Besuchs im Format YYYY-MM-DD, nach obiger Regel bestimmt.
+  "naechsteTodos": string // Kurze, prägnante Zusammenfassung der als Nächstes zu erledigenden Schritte/To-Dos aus dem Text. Leerer String, wenn keine genannt werden.
+}
+Erfinde keine Informationen, die nicht im Text stehen oder sich nicht daraus ableiten lassen (Ausnahme: der Datumsfallback auf das heutige Datum).`;
+
+    const r = await fetch(`${VIBE_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': VIBE_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: transcript },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      console.error('extract upstream error', data);
+      return res.status(502).json({ error: 'EXTRACT_FAILED', detail: (data && data.error && data.error.message) || 'unknown' });
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(data.choices[0].message.content);
+    } catch (e) {
+      console.error('extract parse error', e, data);
+      return res.status(502).json({ error: 'EXTRACT_PARSE_FAILED' });
+    }
+
+    const besuchsdatum = typeof parsed.besuchsdatum === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.besuchsdatum)
+      ? parsed.besuchsdatum
+      : today;
+
+    res.json({
+      kunde: typeof parsed.kunde === 'string' ? parsed.kunde : '',
+      besuchsdatum,
+      naechsteTodos: typeof parsed.naechsteTodos === 'string' ? parsed.naechsteTodos : '',
+    });
+  } catch (err) {
+    console.error('extract error', err);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.post('/api/submit', requireSession, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const bericht = typeof body.bericht === 'string' ? body.bericht.trim() : '';
+    const kunde = typeof body.kunde === 'string' ? body.kunde.trim() : '';
+    const besuchsdatum = typeof body.besuchsdatum === 'string' ? body.besuchsdatum.trim() : '';
+    const naechsteTodos = typeof body.naechsteTodos === 'string' ? body.naechsteTodos.trim() : '';
+
+    if (bericht.length < 3) {
+      return res.status(400).json({ error: 'EMPTY_REPORT' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(besuchsdatum)) {
+      return res.status(400).json({ error: 'INVALID_DATE' });
+    }
+
+    const title = `Besuchsbericht${kunde ? ' - ' + kunde : ''} (${besuchsdatum})`;
+
+    const itemBody = {
+      title,
+      [FIELD_BERICHT]: bericht,
+      [FIELD_KUNDE]: kunde,
+      [FIELD_BESUCHSDATUM]: besuchsdatum,
+      [FIELD_TODOS]: naechsteTodos,
+    };
+
+    const r = await fetch(`${VIBE_BASE}/items/${ENTITY_TYPE_ID}`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': VIBE_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(itemBody),
+    });
+    const data = await r.json();
+    if (!r.ok || data.success === false) {
+      console.error('submit upstream error', data);
+      return res.status(502).json({ error: 'CRM_CREATE_FAILED', detail: (data && data.error && data.error.message) || 'unknown' });
+    }
+
+    res.json({ id: data.data.id });
+  } catch (err) {
+    console.error('submit error', err);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Task Comment Activity app listening on :${PORT}`);
+  console.log(`Besuchsbericht-App listening on port ${PORT}`);
 });
