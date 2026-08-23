@@ -1,19 +1,20 @@
 const express = require('express');
-const crypto = require('crypto');
 const path = require('path');
 
 const VIBE_BASE_URL = process.env.VIBE_BASE_URL || 'https://vibecode.bitrix24.com/v1';
-const VIBE_API_KEY = process.env.VIBE_API_KEY || '';
-const TASK_SCAN_CAP = Number(process.env.TASK_SCAN_CAP || 500);
+const VIBE_APP_KEY = process.env.VIBE_APP_KEY || '';
 const PORT = process.env.PORT || 3000;
+const ADDRESS_TYPE_ID = 1; // "actual" address — available in every country zone
+const CONTACT_ENTITY_TYPE_ID = 3;
 
-if (!VIBE_API_KEY) {
-  console.error('FATAL: VIBE_API_KEY is not set. Set it via the deploy env so this server can call the Vibecode API as its owner.');
+if (!VIBE_APP_KEY) {
+  console.error('FATAL: VIBE_APP_KEY is not set. Set it via the deploy env (the app\'s own vibe_app_* key) so this server can identify itself to the Vibecode API alongside each user\'s forwarded session.');
 }
 
 // ---------------------------------------------------------------------------
-// Rate limiter: Vibecode enforces 10 req/s per key. Stay under it with a
-// sliding-window gate shared by every outbound call this process makes.
+// Rate limiter: Vibecode enforces a request rate per key. The X-Api-Key here
+// identifies the app (shared across every user's session), so gate it once
+// for the whole process.
 // ---------------------------------------------------------------------------
 class RateLimiter {
   constructor(maxPerWindow, windowMs) {
@@ -45,11 +46,14 @@ class RateLimiter {
 }
 const limiter = new RateLimiter(8, 1000);
 
-async function vibeFetch(pathAndQuery, options = {}) {
+// Per-user Vibecode call: the app's own key identifies the app, the forwarded
+// bearer identifies the acting Bitrix24 employee, so every write (contact,
+// company, address) lands in CRM as created by that employee, not the app.
+async function vibeFetch(bearer, pathAndQuery, options = {}) {
   await limiter.acquire();
   const url = `${VIBE_BASE_URL}${pathAndQuery}`;
   const headers = Object.assign(
-    { 'X-Api-Key': VIBE_API_KEY },
+    { 'X-Api-Key': VIBE_APP_KEY, Authorization: `Bearer ${bearer}` },
     options.body ? { 'Content-Type': 'application/json' } : {},
     options.headers || {}
   );
@@ -62,30 +66,21 @@ async function vibeFetch(pathAndQuery, options = {}) {
   if (res.status === 429) {
     const retryAfter = Number(res.headers.get('Retry-After') || '2');
     await new Promise((r) => setTimeout(r, Math.min(retryAfter, 10) * 1000));
-    return vibeFetch(pathAndQuery, options);
+    return vibeFetch(bearer, pathAndQuery, options);
   }
 
   const json = await res.json().catch(() => ({ success: false, error: { code: 'BAD_JSON', message: 'Non-JSON response' } }));
   return { ok: res.ok && json.success !== false, status: res.status, json };
 }
 
-// Query-string builder matching the Vibecode API's per-param conventions:
-// filter is a raw JSON blob, select is comma-joined, sort/order use bracket
-// notation, everything else is a plain scalar.
 function qs(params) {
   const parts = [];
   for (const [k, v] of Object.entries(params)) {
-    if (v === undefined || v === null) continue;
+    if (v === undefined || v === null || v === '') continue;
     if (k === 'filter') {
       parts.push(`filter=${encodeURIComponent(JSON.stringify(v))}`);
     } else if (k === 'select' && Array.isArray(v)) {
       parts.push(`select=${encodeURIComponent(v.join(','))}`);
-    } else if ((k === 'sort' || k === 'order') && v && typeof v === 'object' && !Array.isArray(v)) {
-      for (const [field, dir] of Object.entries(v)) {
-        parts.push(`${k}[${encodeURIComponent(field)}]=${encodeURIComponent(dir)}`);
-      }
-    } else if (typeof v === 'object') {
-      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(JSON.stringify(v))}`);
     } else {
       parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
     }
@@ -94,95 +89,39 @@ function qs(params) {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory job store (per-run report generation) + short result cache.
-// Not persisted across a redeploy or a sleep/wake cycle - see README.
+// Identity: resolve the Gateway-forwarded session once per token, per the
+// Black Hole BFF pattern (see /docs/infra/app-runtime).
 // ---------------------------------------------------------------------------
-const jobs = new Map();
-const resultCache = new Map();
-const CACHE_TTL_MS = 5 * 60 * 1000;
-const JOB_TTL_MS = 30 * 60 * 1000;
+const identityCache = new Map(); // bearer -> { at, me }
+const IDENTITY_TTL_MS = 10 * 60 * 1000;
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, job] of jobs) {
-    if (now - job.createdAt > JOB_TTL_MS) jobs.delete(id);
-  }
-  for (const [key, entry] of resultCache) {
-    if (now - entry.at > CACHE_TTL_MS) resultCache.delete(key);
-  }
-}, 60 * 1000).unref();
-
-function cacheKey(groupIds, from, to) {
-  return JSON.stringify({ g: [...groupIds].sort((a, b) => a - b), from, to });
+async function resolveIdentity(bearer) {
+  const cached = identityCache.get(bearer);
+  if (cached && Date.now() - cached.at < IDENTITY_TTL_MS) return cached.me;
+  const res = await fetch(`${VIBE_BASE_URL}/me`, {
+    headers: { 'X-Api-Key': VIBE_APP_KEY, Authorization: `Bearer ${bearer}` },
+  });
+  if (!res.ok) return null;
+  const json = await res.json().catch(() => null);
+  if (!json || !json.success) return null;
+  identityCache.set(bearer, { at: Date.now(), me: json.data });
+  return json.data;
 }
 
-// ---------------------------------------------------------------------------
-// Core report logic
-// ---------------------------------------------------------------------------
-async function fetchAllTasks(groupIds) {
-  const filter = { groupId: { $in: groupIds } };
-  const { ok, status, json } = await vibeFetch(
-    `/tasks${qs({ filter, select: ['id', 'groupId', 'title'], limit: 5000, withTotal: true })}`
-  );
-  if (!ok) {
-    const err = new Error(json.error ? json.error.message : `HTTP ${status}`);
-    err.code = json.error ? json.error.code : 'UNKNOWN_ERROR';
-    throw err;
+async function requireUser(req, res, next) {
+  const raw = req.headers['x-vibe-authorization'];
+  const bearer = raw ? String(raw).replace(/^Bearer /, '') : '';
+  if (!bearer) {
+    return res.status(401).json({ error: { code: 'NO_SESSION', message: 'Sign in again or grant the app access, then reopen it from the Bitrix24 left menu.' } });
   }
-  return json.data || [];
-}
-
-async function fetchTaskCommentsInRange(taskId, from, to) {
-  const filter = { '>=POST_DATE': from, '<=POST_DATE': to };
-  const seen = new Set();
-  const comments = [];
-  let offset = 0;
-  let truncated = false;
-  for (let page = 0; page < 5; page++) {
-    const { ok, status, json } = await vibeFetch(
-      `/tasks/${taskId}/comments${qs({ filter, limit: 200, offset, sort: 'id:asc' })}`
-    );
-    if (!ok) {
-      const err = new Error(json.error ? json.error.message : `HTTP ${status}`);
-      err.code = json.error ? json.error.code : 'UNKNOWN_ERROR';
-      throw err;
-    }
-    const data = json.data || [];
-    let newCount = 0;
-    for (const c of data) {
-      if (!seen.has(c.id)) {
-        seen.add(c.id);
-        comments.push(c);
-        newCount++;
-      }
-    }
-    if (json.meta && json.meta.truncated) truncated = true;
-    if (!json.meta || !json.meta.hasMore) break;
-    if (newCount === 0) {
-      // offset is not honored on this read path (old-card filtered list) - stop rather than loop forever.
-      truncated = true;
-      break;
-    }
-    offset += data.length;
-    if (page === 4 && json.meta.hasMore) truncated = true;
+  const me = await resolveIdentity(bearer);
+  const userId = me && me.currentUser ? me.currentUser.bitrixUserId : null;
+  if (!me || !userId) {
+    return res.status(401).json({ error: { code: 'NO_SESSION', message: 'Sign in again or grant the app access, then reopen it from the Bitrix24 left menu.' } });
   }
-  return { comments, truncated };
-}
-
-async function resolveUsers(authorIds) {
-  const ids = [...authorIds];
-  const byId = new Map();
-  const chunkSize = 50;
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const chunk = ids.slice(i, i + chunkSize);
-    const { ok, json } = await vibeFetch(
-      `/users${qs({ filter: { id: { $in: chunk } }, select: ['id', 'name', 'lastName', 'personalPhoto'], limit: 50 })}`
-    );
-    if (ok) {
-      for (const u of json.data || []) byId.set(Number(u.id), u);
-    }
-  }
-  return byId;
+  req.bearer = bearer;
+  req.me = me;
+  next();
 }
 
 // ---------------------------------------------------------------------------
@@ -194,156 +133,113 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-app.get('/api/workgroups', async (req, res) => {
-  const search = (req.query.search || '').toString().trim();
-  const filter = { archived: 'N' };
-  if (search) filter['%name'] = search;
+app.get('/api/session', async (req, res) => {
+  const raw = req.headers['x-vibe-authorization'];
+  const bearer = raw ? String(raw).replace(/^Bearer /, '') : '';
+  if (!bearer) return res.json({ authenticated: false });
+  const me = await resolveIdentity(bearer);
+  const userId = me && me.currentUser ? me.currentUser.bitrixUserId : null;
+  if (!me || !userId) return res.json({ authenticated: false });
+  const nameEncoded = req.headers['x-vibe-user-name-encoded'];
+  const userName = nameEncoded ? decodeURIComponent(String(nameEncoded)) : `User ${userId}`;
+  res.json({ authenticated: true, portal: me.portal, user: { id: userId, name: userName } });
+});
+
+// Lightweight request whose only purpose is to travel through the Gateway
+// and keep the placement session's cookie fresh during a long form fill.
+app.get('/api/ping', (req, res) => res.json({ ok: true }));
+
+app.get('/api/companies', requireUser, async (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  if (!q) return res.json({ data: [] });
   try {
     const { ok, status, json } = await vibeFetch(
-      `/workgroups${qs({ filter, select: ['id', 'name', 'isProject'], sort: { name: 'ASC' }, limit: 500 })}`
+      req.bearer,
+      `/companies${qs({ filter: { '%title': q }, select: ['id', 'title'], limit: 15 })}`
     );
-    if (!ok) return res.status(status || 502).json({ error: json.error || { message: 'Failed to list workgroups' } });
-    res.json({ data: json.data || [], total: json.meta ? json.meta.total : undefined });
+    if (!ok) return res.status(status || 502).json({ error: json.error || { message: 'Failed to search companies' } });
+    res.json({ data: json.data || [] });
   } catch (e) {
     res.status(502).json({ error: { message: e.message } });
   }
 });
 
-app.post('/api/report', (req, res) => {
-  const { groupIds, from, to, force } = req.body || {};
-  if (!Array.isArray(groupIds) || groupIds.length === 0) {
-    return res.status(400).json({ error: { code: 'NO_GROUPS', message: 'Select at least one project group.' } });
-  }
-  const fromIso = from ? new Date(from).toISOString() : null;
-  const toIso = to ? new Date(to).toISOString() : null;
-  if (!fromIso || !toIso || fromIso > toIso) {
-    return res.status(400).json({ error: { code: 'BAD_RANGE', message: 'Invalid date range.' } });
-  }
-
-  const cached = resultCache.get(cacheKey(groupIds, fromIso, toIso));
-  if (cached) {
-    return res.json({ jobId: null, cached: true, result: cached.result });
-  }
-
-  const jobId = crypto.randomUUID();
-  const job = { id: jobId, status: 'starting', createdAt: Date.now(), totalTasks: 0, scannedTasks: 0 };
-  jobs.set(jobId, job);
-
-  (async () => {
-    try {
-      job.status = 'fetching-tasks';
-      const tasks = await fetchAllTasks(groupIds);
-      if (tasks.length > TASK_SCAN_CAP && !force) {
-        job.status = 'needs-confirmation';
-        job.confirmation = { taskCount: tasks.length, cap: TASK_SCAN_CAP };
-        return;
-      }
-      job.totalTasks = tasks.length;
-      job.status = 'scanning-comments';
-      // re-run through the shared runner, reusing the already-fetched task list
-      await runReportWithTasks(job, tasks, groupIds, fromIso, toIso);
-    } catch (e) {
-      job.status = 'error';
-      job.error = { code: e.code || 'UNKNOWN_ERROR', message: e.message || 'Unknown error' };
-    }
-  })();
-
-  res.json({ jobId, cached: false });
-});
-
-async function runReportWithTasks(job, tasks, groupIds, from, to) {
-  const tally = new Map();
-  let failedTasks = 0;
-  let truncatedTasks = 0;
-  const CONCURRENCY = 6;
-  let cursor = 0;
-  async function worker() {
-    while (cursor < tasks.length) {
-      const idx = cursor++;
-      const task = tasks[idx];
-      try {
-        const { comments, truncated } = await fetchTaskCommentsInRange(task.id, from, to);
-        if (truncated) truncatedTasks++;
-        for (const c of comments) {
-          const authorId = Number(c.authorId);
-          if (!tally.has(authorId)) tally.set(authorId, { commentCount: 0, taskIds: new Set() });
-          const entry = tally.get(authorId);
-          entry.commentCount++;
-          entry.taskIds.add(task.id);
-        }
-      } catch (e) {
-        failedTasks++;
-      }
-      job.scannedTasks++;
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length || 1) }, worker));
-
-  job.status = 'resolving-users';
-  const authorIds = [...tally.keys()];
-  const users = await resolveUsers(authorIds);
-
-  const rows = authorIds.map((authorId) => {
-    const entry = tally.get(authorId);
-    const u = users.get(authorId);
-    return {
-      userId: authorId,
-      userName: u ? `${u.name || ''} ${u.lastName || ''}`.trim() || `User ${authorId}` : `User ${authorId} (not found)`,
-      avatar: u ? u.personalPhoto || null : null,
-      commentCount: entry.commentCount,
-      taskCount: entry.taskIds.size,
-    };
-  });
-  rows.sort((a, b) => b.commentCount - a.commentCount);
-
-  job.result = {
-    rows,
-    summary: {
-      totalTasks: tasks.length,
-      scannedTasks: job.scannedTasks,
-      failedTasks,
-      truncatedTasks,
-      totalComments: rows.reduce((s, r) => s + r.commentCount, 0),
-    },
-  };
-  job.status = 'done';
-  resultCache.set(cacheKey(groupIds, from, to), { at: Date.now(), result: job.result });
+function multifield(value) {
+  const v = (value || '').toString().trim();
+  return v || undefined;
 }
 
-app.post('/api/report/:jobId/confirm', (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job || job.status !== 'needs-confirmation') {
-    return res.status(404).json({ error: { message: 'No pending confirmation for this job.' } });
+app.post('/api/contacts', requireUser, async (req, res) => {
+  const body = req.body || {};
+  const firstName = (body.firstName || '').toString().trim();
+  const lastName = (body.lastName || '').toString().trim();
+  if (!firstName && !lastName) {
+    return res.status(400).json({ error: { code: 'NO_NAME', message: 'Enter at least a first or last name.' } });
   }
-  const { groupIds, from, to } = req.body || {};
-  job.status = 'fetching-tasks';
-  (async () => {
-    try {
-      const tasks = await fetchAllTasks(groupIds);
-      job.totalTasks = tasks.length;
-      job.status = 'scanning-comments';
-      await runReportWithTasks(job, tasks, groupIds, from, to);
-    } catch (e) {
-      job.status = 'error';
-      job.error = { code: e.code || 'UNKNOWN_ERROR', message: e.message || 'Unknown error' };
-    }
-  })();
-  res.json({ ok: true });
-});
 
-app.get('/api/report/:jobId', (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: { message: 'Job not found (it may have expired).' } });
-  res.json({
-    status: job.status,
-    totalTasks: job.totalTasks,
-    scannedTasks: job.scannedTasks,
-    confirmation: job.confirmation,
-    error: job.error,
-    result: job.status === 'done' ? job.result : undefined,
-  });
+  try {
+    let companyId = body.companyId ? Number(body.companyId) : undefined;
+
+    if (!companyId && body.newCompanyTitle) {
+      const title = body.newCompanyTitle.toString().trim();
+      if (title) {
+        const { ok, status, json } = await vibeFetch(req.bearer, '/companies', {
+          method: 'POST',
+          body: { title },
+        });
+        if (!ok) return res.status(status || 502).json({ error: json.error || { message: 'Failed to create the company' }, step: 'company' });
+        companyId = json.data.id;
+      }
+    }
+
+    const contactBody = {
+      name: firstName || undefined,
+      lastName: lastName || undefined,
+      phone: multifield(body.phone),
+      email: multifield(body.email),
+      companyId,
+      comments: multifield(body.comments),
+    };
+    Object.keys(contactBody).forEach((k) => contactBody[k] === undefined && delete contactBody[k]);
+
+    const created = await vibeFetch(req.bearer, '/contacts', { method: 'POST', body: contactBody });
+    if (!created.ok) {
+      return res.status(created.status || 502).json({ error: created.json.error || { message: 'Failed to create the contact' }, step: 'contact' });
+    }
+    const contactId = created.json.data.id;
+
+    const address = body.address || {};
+    const hasAddress = ['line1', 'city', 'region', 'postalCode', 'country'].some((k) => (address[k] || '').toString().trim());
+    if (hasAddress) {
+      const addrBody = {
+        typeId: ADDRESS_TYPE_ID,
+        entityTypeId: CONTACT_ENTITY_TYPE_ID,
+        entityId: contactId,
+        address1: multifield(address.line1),
+        city: multifield(address.city),
+        province: multifield(address.region),
+        postalCode: multifield(address.postalCode),
+        country: multifield(address.country),
+      };
+      Object.keys(addrBody).forEach((k) => addrBody[k] === undefined && delete addrBody[k]);
+      const addrRes = await vibeFetch(req.bearer, '/addresses', { method: 'POST', body: addrBody });
+      if (!addrRes.ok) {
+        // Contact already exists at this point — surface the address failure
+        // without pretending the whole operation failed.
+        return res.json({
+          id: contactId,
+          portal: req.me.portal,
+          addressWarning: addrRes.json.error ? addrRes.json.error.message : 'The contact was created, but saving the address failed.',
+        });
+      }
+    }
+
+    res.json({ id: contactId, portal: req.me.portal });
+  } catch (e) {
+    res.status(502).json({ error: { message: e.message } });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`Task Comment Activity app listening on :${PORT}`);
+  console.log(`Contact Wizard app listening on :${PORT}`);
 });

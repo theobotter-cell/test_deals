@@ -1,413 +1,701 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Task Comment Activity</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>New Contact</title>
+<link rel="icon" href="/_gw/icon" />
 <style>
   :root {
-    --bg: #f5f6f8;
-    --panel: #ffffff;
-    --border: #dfe3e8;
-    --text: #1f2733;
-    --muted: #6b7685;
-    --accent: #2fc6f6;
-    --accent-dark: #1a9fcb;
-    --danger: #e0533d;
-    --warn: #b8860b;
+    --blue: #2066b0;
+    --blue-dark: #184e87;
+    --ink: #1b2733;
+    --muted: #67788c;
+    --line: #dfe6ee;
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --danger: #c62f2f;
+    --danger-bg: #fdecec;
+    --radius: 10px;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
-    color: var(--text);
+    color: var(--ink);
+  }
+  .wrap {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .brand-icon {
+    width: 34px; height: 34px; border-radius: 8px;
+    background: var(--blue);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px;
+  }
+  .brand-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .brand-sub { font-size: 12px; color: var(--muted); }
+
+  .progress {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 24px;
+  }
+  .progress .dot {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    transition: background 0.2s ease;
+  }
+  .progress .dot.done { background: var(--blue); }
+  .progress .dot.current { background: var(--blue-dark); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 28px;
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+  }
+  .step-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  h1 {
+    font-size: 21px;
+    margin: 0 0 6px;
+  }
+  .hint {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 22px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 14px 0 6px;
+  }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], input[type=tel], input[type=email], textarea {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: inherit;
+    color: var(--ink);
+    background: #fff;
+  }
+  input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(32,102,176,0.12);
+  }
+  textarea { resize: vertical; min-height: 90px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .field-body { flex: 1; }
+
+  .actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-top: 26px;
+  }
+  .actions .left, .actions .right { display: flex; gap: 10px; }
+  button {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 11px 18px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--blue-dark); }
+  .btn-secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+  .btn-secondary:hover:not(:disabled) { background: #f6f8fa; }
+  .btn-text { background: none; color: var(--muted); padding: 11px 4px; }
+  .btn-text:hover:not(:disabled) { color: var(--ink); }
+
+  .toggle-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .toggle-btn {
+    flex: 1;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .toggle-btn.active { border-color: var(--blue); color: var(--blue); background: #eef4fb; }
+
+  .company-results {
+    margin-top: 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .company-results .item {
+    padding: 10px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+  .company-results .item:last-child { border-bottom: none; }
+  .company-results .item:hover { background: #f6f8fa; }
+  .company-picked {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: #eef4fb;
+    border: 1px solid #cfe0f3;
+    border-radius: 8px;
     font-size: 14px;
   }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .subtitle { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
+  .company-picked button { padding: 5px 10px; font-size: 12px; }
+
+  .summary-list { border-top: 1px solid var(--line); }
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .summary-row .k { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; padding-top: 2px; }
+  .summary-row .v { font-size: 14px; text-align: right; word-break: break-word; }
+  .summary-row .v.empty { color: var(--muted); font-style: italic; }
+  .summary-row .edit { font-size: 12px; color: var(--blue); cursor: pointer; margin-left: 10px; white-space: nowrap; }
+
+  .banner {
+    background: var(--danger-bg);
+    color: var(--danger);
+    border: 1px solid #f3c8c8;
     border-radius: 8px;
-    padding: 16px;
+    padding: 10px 12px;
+    font-size: 13px;
     margin-bottom: 16px;
   }
-  .field { margin-bottom: 14px; }
-  .field label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; }
-  .presets { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-  .presets button {
-    border: 1px solid var(--border);
-    background: #fff;
-    padding: 6px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
+
+  .center-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 14px;
+    padding: 20px 0;
   }
-  .presets button.active { background: var(--accent); border-color: var(--accent-dark); color: #06323f; font-weight: 600; }
-  .date-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .date-row input[type=date] {
-    padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  .check-badge {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: #e6f4ea; color: #1e7d34;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
   }
-  #groupSearch {
-    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  .center-state h2 { margin: 0; font-size: 19px; }
+  .center-state p { margin: 0; color: var(--muted); font-size: 14px; max-width: 340px; }
+
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 6px;
   }
-  #groupList {
-    max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-top: 8px;
-  }
-  .group-row {
-    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid #eef0f2; font-size: 13px;
-  }
-  .group-row:last-child { border-bottom: none; }
-  .group-row:hover { background: #fafbfc; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .chip {
-    background: #eaf9fe; border: 1px solid #bfeaf6; color: #0d6a86; border-radius: 14px;
-    padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 6px;
-  }
-  .chip button { border: none; background: none; cursor: pointer; color: #0d6a86; font-weight: 700; padding: 0; }
-  .run-row { display: flex; align-items: center; gap: 12px; }
-  button.primary {
-    background: var(--accent-dark); color: #fff; border: none; padding: 9px 18px;
-    border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;
-  }
-  button.primary:disabled { opacity: 0.5; cursor: default; }
-  button.secondary {
-    background: #fff; border: 1px solid var(--border); padding: 9px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;
-  }
-  .status-line { color: var(--muted); font-size: 13px; }
-  .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
-  .notice.warn { background: #fff8e6; border: 1px solid #f0e0a8; color: #7a5c00; }
-  .notice.error { background: #fdecea; border: 1px solid #f5c6c0; color: #a3271b; }
-  .notice.info { background: #eaf9fe; border: 1px solid #bfeaf6; color: #0d6a86; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef0f2; font-size: 13px; }
-  th { cursor: pointer; user-select: none; color: var(--muted); font-weight: 600; }
-  th.sorted { color: var(--text); }
-  tr:hover td { background: #fafbfc; }
-  .avatar { width: 24px; height: 24px; border-radius: 50%; vertical-align: middle; margin-right: 8px; background: #ddd; }
-  .user-cell { display: flex; align-items: center; }
-  .empty-state { text-align: center; color: var(--muted); padding: 40px 0; }
-  .progress-bar { height: 6px; background: #eef0f2; border-radius: 3px; overflow: hidden; margin: 10px 0; }
-  .progress-bar-fill { height: 100%; background: var(--accent-dark); width: 0%; transition: width 0.3s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Task Comment Activity</h1>
-  <p class="subtitle">Comment counts per user, scoped to project groups and a date range.</p>
-
-  <div class="panel">
-    <div class="field">
-      <label>Project groups</label>
-      <input id="groupSearch" type="text" placeholder="Search project groups…">
-      <div id="groupList"></div>
-      <div class="chips" id="selectedChips"></div>
+  <div class="brand">
+    <div class="brand-icon">B24</div>
+    <div>
+      <div class="brand-title">New Contact</div>
+      <div class="brand-sub" id="sessionLine">&nbsp;</div>
     </div>
-
-    <div class="field">
-      <label>Date range</label>
-      <div class="presets">
-        <button type="button" data-preset="1m">Last 1 month</button>
-        <button type="button" data-preset="2m">Last 2 months</button>
-      </div>
-      <div class="date-row">
-        <input type="date" id="fromDate">
-        <span>to</span>
-        <input type="date" id="toDate">
-      </div>
-    </div>
-
-    <div class="run-row">
-      <button class="primary" id="runBtn">Run report</button>
-      <span class="status-line" id="statusLine"></span>
-    </div>
-    <div class="progress-bar" id="progressBar" style="display:none"><div class="progress-bar-fill" id="progressFill"></div></div>
   </div>
-
-  <div id="notices"></div>
-  <div class="panel" id="resultsPanel" style="display:none">
-    <table>
-      <thead>
-        <tr>
-          <th data-sort="userName">User</th>
-          <th data-sort="commentCount">Comments</th>
-          <th data-sort="taskCount">Tasks touched</th>
-        </tr>
-      </thead>
-      <tbody id="resultsBody"></tbody>
-    </table>
-  </div>
-  <div class="empty-state" id="emptyState" style="display:none">No comments found for this selection.</div>
+  <div class="progress" id="progress"></div>
+  <div class="card" id="card"></div>
 </div>
 
 <script>
-const state = {
-  allGroups: [],
-  selectedGroupIds: new Set(),
-  sortKey: 'commentCount',
-  sortDir: -1,
-  rows: [],
-  pollTimer: null,
-};
-
-function fmtDate(d) { return d.toISOString().slice(0, 10); }
-
-function setPreset(kind) {
-  const to = new Date();
-  const from = new Date();
-  if (kind === '1m') from.setMonth(from.getMonth() - 1);
-  if (kind === '2m') from.setMonth(from.getMonth() - 2);
-  document.getElementById('fromDate').value = fmtDate(from);
-  document.getElementById('toDate').value = fmtDate(to);
-  document.querySelectorAll('.presets button').forEach((b) => b.classList.toggle('active', b.dataset.preset === kind));
-}
-
-document.querySelectorAll('.presets button').forEach((b) => {
-  b.addEventListener('click', () => setPreset(b.dataset.preset));
-});
-document.getElementById('fromDate').addEventListener('change', () => {
-  document.querySelectorAll('.presets button').forEach((b) => b.classList.remove('active'));
-});
-document.getElementById('toDate').addEventListener('change', () => {
-  document.querySelectorAll('.presets button').forEach((b) => b.classList.remove('active'));
-});
-setPreset('1m');
-
-async function loadGroups(search) {
-  const res = await fetch('/api/workgroups' + (search ? '?search=' + encodeURIComponent(search) : ''));
-  const body = await res.json();
-  if (!res.ok) {
-    showNotice('error', 'Could not load project groups: ' + (body.error ? body.error.message : res.status));
-    return;
-  }
-  state.allGroups = body.data || [];
-  renderGroupList();
-}
-
-function renderGroupList() {
-  const list = document.getElementById('groupList');
-  list.innerHTML = '';
-  if (state.allGroups.length === 0) {
-    list.innerHTML = '<div class="group-row" style="color:#999">No matching groups</div>';
-    return;
-  }
-  for (const g of state.allGroups) {
-    const row = document.createElement('label');
-    row.className = 'group-row';
-    const checked = state.selectedGroupIds.has(g.id);
-    row.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''} data-id="${g.id}"> <span>${escapeHtml(g.name)}</span>`;
-    row.querySelector('input').addEventListener('change', (e) => {
-      if (e.target.checked) state.selectedGroupIds.add(g.id);
-      else state.selectedGroupIds.delete(g.id);
-      renderChips();
-    });
-    list.appendChild(row);
-  }
-}
-
-function renderChips() {
-  const chips = document.getElementById('selectedChips');
-  chips.innerHTML = '';
-  for (const id of state.selectedGroupIds) {
-    const g = state.allGroups.find((x) => x.id === id);
-    const name = g ? g.name : `Group ${id}`;
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.innerHTML = `${escapeHtml(name)} <button type="button" aria-label="remove">×</button>`;
-    chip.querySelector('button').addEventListener('click', () => {
-      state.selectedGroupIds.delete(id);
-      renderGroupList();
-      renderChips();
-    });
-    chips.appendChild(chip);
-  }
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-let searchTimer = null;
-document.getElementById('groupSearch').addEventListener('input', (e) => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => loadGroups(e.target.value.trim()), 250);
-});
-
-loadGroups('');
-
-function showNotice(kind, text) {
-  const notices = document.getElementById('notices');
-  const div = document.createElement('div');
-  div.className = 'notice ' + kind;
-  div.textContent = text;
-  notices.appendChild(div);
-}
-function clearNotices() { document.getElementById('notices').innerHTML = ''; }
-
-function setProgress(scanned, total) {
-  const bar = document.getElementById('progressBar');
-  const fill = document.getElementById('progressFill');
-  if (!total) { bar.style.display = 'none'; return; }
-  bar.style.display = 'block';
-  fill.style.width = Math.min(100, Math.round((scanned / total) * 100)) + '%';
-}
-
-async function runReport() {
-  clearNotices();
-  document.getElementById('resultsPanel').style.display = 'none';
-  document.getElementById('emptyState').style.display = 'none';
-
-  if (state.selectedGroupIds.size === 0) {
-    showNotice('warn', 'Select at least one project group.');
-    return;
-  }
-  const from = document.getElementById('fromDate').value;
-  const to = document.getElementById('toDate').value;
-  if (!from || !to) {
-    showNotice('warn', 'Pick a date range.');
-    return;
-  }
-
-  const runBtn = document.getElementById('runBtn');
-  runBtn.disabled = true;
-  document.getElementById('statusLine').textContent = 'Starting…';
-
-  const body = { groupIds: [...state.selectedGroupIds], from: from + 'T00:00:00.000Z', to: to + 'T23:59:59.999Z' };
-
-  try {
-    const res = await fetch('/api/report', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      showNotice('error', data.error ? data.error.message : 'Failed to start report.');
-      runBtn.disabled = false;
-      return;
-    }
-    if (data.cached) {
-      renderResult(data.result);
-      runBtn.disabled = false;
-      document.getElementById('statusLine').textContent = 'From cache.';
-      return;
-    }
-    pollJob(data.jobId, body);
-  } catch (e) {
-    showNotice('error', 'Network error: ' + e.message);
-    runBtn.disabled = false;
-  }
-}
-
-function pollJob(jobId, body) {
-  const runBtn = document.getElementById('runBtn');
-  clearTimeout(state.pollTimer);
-  const tick = async () => {
-    try {
-      const res = await fetch('/api/report/' + jobId);
-      const data = await res.json();
-      if (!res.ok) {
-        showNotice('error', data.error ? data.error.message : 'Report job lost.');
-        runBtn.disabled = false;
-        setProgress(0, 0);
-        return;
-      }
-      if (data.status === 'needs-confirmation') {
-        setProgress(0, 0);
-        document.getElementById('statusLine').textContent = '';
-        const conf = data.confirmation;
-        showNotice('warn', `This selection has ${conf.taskCount} tasks (above the ${conf.cap} soft cap). Scanning may take a while.`);
-        const proceed = document.createElement('button');
-        proceed.textContent = `Scan all ${conf.taskCount} tasks anyway`;
-        proceed.className = 'secondary';
-        proceed.style.marginLeft = '8px';
-        proceed.addEventListener('click', async () => {
-          proceed.disabled = true;
-          await fetch('/api/report/' + jobId + '/confirm', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-          });
-          document.getElementById('statusLine').textContent = 'Scanning…';
-          state.pollTimer = setTimeout(tick, 800);
-        });
-        document.getElementById('notices').lastChild.appendChild(proceed);
-        return;
-      }
-      if (data.status === 'error') {
-        showNotice('error', data.error ? data.error.message : 'Report failed.');
-        runBtn.disabled = false;
-        setProgress(0, 0);
-        return;
-      }
-      if (data.status === 'done') {
-        setProgress(0, 0);
-        document.getElementById('statusLine').textContent = '';
-        runBtn.disabled = false;
-        renderResult(data.result);
-        return;
-      }
-      const label = {
-        'starting': 'Starting…',
-        'fetching-tasks': 'Finding tasks…',
-        'scanning-comments': `Scanning comments… (${data.scannedTasks || 0} of ${data.totalTasks || '?'} tasks)`,
-        'resolving-users': 'Resolving user names…',
-      }[data.status] || data.status;
-      document.getElementById('statusLine').textContent = label;
-      setProgress(data.scannedTasks || 0, data.totalTasks || 0);
-      state.pollTimer = setTimeout(tick, 800);
-    } catch (e) {
-      showNotice('error', 'Network error while polling: ' + e.message);
-      runBtn.disabled = false;
-    }
+(function () {
+  var STEPS = ['name', 'phone', 'email', 'company', 'address', 'comments', 'review'];
+  var STEP_TITLES = {
+    name: 'Full name', phone: 'Phone number', email: 'Email address',
+    company: 'Company', address: 'Address', comments: 'Comments', review: 'Review & submit'
   };
-  tick();
-}
 
-function renderResult(result) {
-  state.rows = result.rows || [];
-  const s = result.summary || {};
-  if (s.failedTasks) showNotice('warn', `${s.failedTasks} task(s) could not be read and were excluded from the counts.`);
-  if (s.truncatedTasks) showNotice('info', `${s.truncatedTasks} task(s) had more comments in range than could be fully scanned in one pass — their counts may be a lower bound.`);
-  if (state.rows.length === 0) {
-    document.getElementById('emptyState').style.display = 'block';
-    document.getElementById('resultsPanel').style.display = 'none';
-    return;
+  var state = {
+    step: 0,
+    done: false,
+    firstName: '', lastName: '',
+    phone: '', email: '',
+    companyMode: 'existing', // 'existing' | 'new' | 'none'
+    companyId: null, companyTitle: '',
+    newCompanyTitle: '',
+    address: { line1: '', city: '', region: '', postalCode: '', country: '' },
+    comments: '',
+    error: null,
+    submitting: false,
+    result: null,
+    session: null,
+  };
+
+  var cardEl = document.getElementById('card');
+  var progressEl = document.getElementById('progress');
+  var sessionLine = document.getElementById('sessionLine');
+
+  function el(tag, attrs, children) {
+    var e = document.createElement(tag);
+    attrs = attrs || {};
+    Object.keys(attrs).forEach(function (k) {
+      if (k === 'class') e.className = attrs[k];
+      else if (k === 'text') e.textContent = attrs[k];
+      else if (k.indexOf('on') === 0) e.addEventListener(k.slice(2), attrs[k]);
+      else e.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) { if (c) e.appendChild(c); });
+    return e;
   }
-  document.getElementById('resultsPanel').style.display = 'block';
-  sortAndRender();
-}
 
-function sortAndRender() {
-  const { sortKey, sortDir } = state;
-  const rows = [...state.rows].sort((a, b) => {
-    const av = a[sortKey], bv = b[sortKey];
-    if (typeof av === 'string') return sortDir * av.localeCompare(bv);
-    return sortDir * (av - bv);
-  });
-  const tbody = document.getElementById('resultsBody');
-  tbody.innerHTML = '';
-  for (const r of rows) {
-    const tr = document.createElement('tr');
-    const avatar = r.avatar
-      ? `<img class="avatar" src="${r.avatar}" alt="">`
-      : `<span class="avatar"></span>`;
-    tr.innerHTML = `<td><span class="user-cell">${avatar}${escapeHtml(r.userName)}</span></td><td>${r.commentCount}</td><td>${r.taskCount}</td>`;
-    tbody.appendChild(tr);
+  function renderProgress() {
+    progressEl.innerHTML = '';
+    var total = STEPS.length;
+    for (var i = 0; i < total; i++) {
+      var cls = 'dot';
+      if (state.done) cls += ' done';
+      else if (i < state.step) cls += ' done';
+      else if (i === state.step) cls += ' current';
+      progressEl.appendChild(el('div', { class: cls }));
+    }
   }
-  document.querySelectorAll('th[data-sort]').forEach((th) => {
-    th.classList.toggle('sorted', th.dataset.sort === sortKey);
-  });
-}
 
-document.querySelectorAll('th[data-sort]').forEach((th) => {
-  th.addEventListener('click', () => {
-    const key = th.dataset.sort;
-    if (state.sortKey === key) state.sortDir *= -1;
-    else { state.sortKey = key; state.sortDir = -1; }
-    sortAndRender();
-  });
-});
+  function goto(stepName) {
+    state.step = STEPS.indexOf(stepName);
+    state.error = null;
+    render();
+  }
+  function next() { if (state.step < STEPS.length - 1) { state.step++; state.error = null; render(); } }
+  function back() { if (state.step > 0) { state.step--; state.error = null; render(); } }
 
-document.getElementById('runBtn').addEventListener('click', runReport);
+  function fieldStep(opts) {
+    var body = el('div', { class: 'field-body' });
+    body.appendChild(el('div', { class: 'step-label', text: 'Step ' + (state.step + 1) + ' of ' + STEPS.length }));
+    body.appendChild(el('h1', { text: opts.title }));
+    if (opts.hint) body.appendChild(el('p', { class: 'hint', text: opts.hint }));
+    if (state.error) body.appendChild(el('div', { class: 'banner', text: state.error }));
+    body.appendChild(opts.content);
+
+    var actions = el('div', { class: 'actions' });
+    var left = el('div', { class: 'left' });
+    if (state.step > 0) left.appendChild(el('button', { class: 'btn-secondary', text: 'Back', onclick: back }));
+    var right = el('div', { class: 'right' });
+    if (opts.skippable) right.appendChild(el('button', { class: 'btn-text', text: 'Skip', onclick: function () { opts.onSkip ? opts.onSkip() : next(); } }));
+    right.appendChild(el('button', { class: 'btn-primary', text: opts.nextLabel || 'Next', onclick: function () {
+      var err = opts.validate ? opts.validate() : null;
+      if (err) { state.error = err; render(); return; }
+      if (opts.onNext) opts.onNext();
+      next();
+    } }));
+    actions.appendChild(left);
+    actions.appendChild(right);
+    body.appendChild(actions);
+    return body;
+  }
+
+  function textInput(value, placeholder, onInput, type) {
+    var i = el('input', { type: type || 'text', placeholder: placeholder || '', value: value || '' });
+    i.addEventListener('input', function (e) { onInput(e.target.value); });
+    return i;
+  }
+
+  function renderName() {
+    var content = document.createDocumentFragment();
+    content.appendChild(el('label', { text: 'First name' }));
+    content.appendChild(textInput(state.firstName, 'e.g. Jordan', function (v) { state.firstName = v; }));
+    content.appendChild(el('label', { text: 'Last name' }));
+    content.appendChild(textInput(state.lastName, 'e.g. Blake', function (v) { state.lastName = v; }));
+    return fieldStep({
+      title: 'What\'s the contact\'s name?',
+      content: content,
+      validate: function () {
+        if (!state.firstName.trim() && !state.lastName.trim()) return 'Enter at least a first or last name.';
+        return null;
+      },
+    });
+  }
+
+  function renderPhone() {
+    var content = document.createDocumentFragment();
+    content.appendChild(el('label', { text: 'Phone number' }));
+    content.appendChild(textInput(state.phone, '+1 202 555 0123', function (v) { state.phone = v; }, 'tel'));
+    return fieldStep({
+      title: 'Phone number',
+      hint: 'Optional — you can skip this step.',
+      content: content,
+      skippable: true,
+      onSkip: function () { state.phone = ''; },
+    });
+  }
+
+  function renderEmail() {
+    var content = document.createDocumentFragment();
+    content.appendChild(el('label', { text: 'Email address' }));
+    content.appendChild(textInput(state.email, 'name@company.com', function (v) { state.email = v; }, 'email'));
+    return fieldStep({
+      title: 'Email address',
+      hint: 'Optional — you can skip this step.',
+      content: content,
+      skippable: true,
+      onSkip: function () { state.email = ''; },
+      validate: function () {
+        if (state.email && !/^\S+@\S+\.\S+$/.test(state.email.trim())) return 'That doesn\'t look like a valid email address.';
+        return null;
+      },
+    });
+  }
+
+  var companySearchTimer = null;
+  function renderCompany() {
+    var content = document.createDocumentFragment();
+
+    var toggleRow = el('div', { class: 'toggle-row' });
+    var modes = [['existing', 'Link existing'], ['new', 'New company'], ['none', 'No company']];
+    modes.forEach(function (m) {
+      var btn = el('button', { class: 'toggle-btn' + (state.companyMode === m[0] ? ' active' : ''), text: m[1], type: 'button' });
+      btn.addEventListener('click', function () { state.companyMode = m[0]; render(); });
+      toggleRow.appendChild(btn);
+    });
+    content.appendChild(toggleRow);
+
+    if (state.companyMode === 'existing') {
+      if (state.companyId) {
+        var picked = el('div', { class: 'company-picked' }, [
+          el('span', { text: state.companyTitle }),
+          el('button', { class: 'btn-secondary', text: 'Change', onclick: function () { state.companyId = null; state.companyTitle = ''; render(); } }),
+        ]);
+        content.appendChild(picked);
+      } else {
+        content.appendChild(el('label', { text: 'Search companies by name' }));
+        var searchInput = textInput('', 'Start typing a company name…', function (v) {
+          clearTimeout(companySearchTimer);
+          var resultsBox = document.getElementById('companyResults');
+          if (!v.trim()) { resultsBox.innerHTML = ''; return; }
+          companySearchTimer = setTimeout(function () {
+            fetch('/api/companies?q=' + encodeURIComponent(v.trim()))
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                resultsBox.innerHTML = '';
+                (d.data || []).forEach(function (c) {
+                  var item = el('div', { class: 'item', text: c.title });
+                  item.addEventListener('click', function () {
+                    state.companyId = c.id; state.companyTitle = c.title; render();
+                  });
+                  resultsBox.appendChild(item);
+                });
+                if (!d.data || !d.data.length) resultsBox.appendChild(el('div', { class: 'item', text: 'No matches' }));
+              })
+              .catch(function () {});
+          }, 300);
+        });
+        content.appendChild(searchInput);
+        content.appendChild(el('div', { class: 'company-results', id: 'companyResults' }));
+      }
+    } else if (state.companyMode === 'new') {
+      content.appendChild(el('label', { text: 'New company name' }));
+      content.appendChild(textInput(state.newCompanyTitle, 'e.g. Acme LLC', function (v) { state.newCompanyTitle = v; }));
+    } else {
+      content.appendChild(el('p', { class: 'hint', text: 'The contact will be created without a linked company.' }));
+    }
+
+    return fieldStep({
+      title: 'Link a company',
+      hint: 'Attach the contact to an existing CRM company, or create a new one.',
+      content: content,
+      skippable: state.companyMode !== 'none',
+      onSkip: function () { state.companyMode = 'none'; state.companyId = null; state.companyTitle = ''; state.newCompanyTitle = ''; },
+      validate: function () {
+        if (state.companyMode === 'existing' && !state.companyId) return 'Search and select a company, or switch to "New company" / "No company".';
+        if (state.companyMode === 'new' && !state.newCompanyTitle.trim()) return 'Enter a name for the new company.';
+        return null;
+      },
+    });
+  }
+
+  function renderAddress() {
+    var content = document.createDocumentFragment();
+    content.appendChild(el('label', { text: 'Street address' }));
+    content.appendChild(textInput(state.address.line1, 'Street and building', function (v) { state.address.line1 = v; }));
+    var row = el('div', { class: 'row2' });
+    var cityBox = document.createDocumentFragment();
+    cityBox.appendChild(el('label', { text: 'City' }));
+    cityBox.appendChild(textInput(state.address.city, 'City', function (v) { state.address.city = v; }));
+    var regionBox = document.createDocumentFragment();
+    regionBox.appendChild(el('label', { text: 'State / Region' }));
+    regionBox.appendChild(textInput(state.address.region, 'State or region', function (v) { state.address.region = v; }));
+    var c1 = el('div', {}, [cityBox]);
+    var c2 = el('div', {}, [regionBox]);
+    row.appendChild(c1); row.appendChild(c2);
+    content.appendChild(row);
+
+    var row2 = el('div', { class: 'row2' });
+    var postalBox = document.createDocumentFragment();
+    postalBox.appendChild(el('label', { text: 'Postal code' }));
+    postalBox.appendChild(textInput(state.address.postalCode, 'Postal code', function (v) { state.address.postalCode = v; }));
+    var countryBox = document.createDocumentFragment();
+    countryBox.appendChild(el('label', { text: 'Country' }));
+    countryBox.appendChild(textInput(state.address.country, 'Country', function (v) { state.address.country = v; }));
+    var c3 = el('div', {}, [postalBox]);
+    var c4 = el('div', {}, [countryBox]);
+    row2.appendChild(c3); row2.appendChild(c4);
+    content.appendChild(row2);
+
+    return fieldStep({
+      title: 'Address',
+      hint: 'Optional — you can skip this step.',
+      content: content,
+      skippable: true,
+    });
+  }
+
+  function renderComments() {
+    var content = document.createDocumentFragment();
+    content.appendChild(el('label', { text: 'Notes about this contact' }));
+    var ta = el('textarea', { placeholder: 'Anything worth remembering…' });
+    ta.value = state.comments;
+    ta.addEventListener('input', function (e) { state.comments = e.target.value; });
+    content.appendChild(ta);
+    return fieldStep({
+      title: 'Comments',
+      hint: 'Optional — you can skip this step.',
+      content: content,
+      skippable: true,
+    });
+  }
+
+  function summaryRow(label, value, stepName) {
+    var row = el('div', { class: 'summary-row' });
+    row.appendChild(el('div', { class: 'k', text: label }));
+    var right = el('div', {}, []);
+    right.style.display = 'flex';
+    right.style.alignItems = 'flex-start';
+    var v = el('div', { class: 'v' + (value ? '' : ' empty'), text: value || 'Not set' });
+    var editLink = el('span', { class: 'edit', text: 'Edit' });
+    editLink.addEventListener('click', function () { goto(stepName); });
+    right.appendChild(v);
+    right.appendChild(editLink);
+    row.appendChild(right);
+    return row;
+  }
+
+  function renderReview() {
+    var body = el('div', { class: 'field-body' });
+    body.appendChild(el('div', { class: 'step-label', text: 'Step ' + STEPS.length + ' of ' + STEPS.length }));
+    body.appendChild(el('h1', { text: 'Review & submit' }));
+    body.appendChild(el('p', { class: 'hint', text: 'Confirm everything looks right before creating the contact.' }));
+    if (state.error) body.appendChild(el('div', { class: 'banner', text: state.error }));
+
+    var list = el('div', { class: 'summary-list' });
+    var fullName = (state.firstName + ' ' + state.lastName).trim();
+    list.appendChild(summaryRow('Name', fullName, 'name'));
+    list.appendChild(summaryRow('Phone', state.phone, 'phone'));
+    list.appendChild(summaryRow('Email', state.email, 'email'));
+    var companyLabel = state.companyMode === 'existing' ? state.companyTitle
+      : state.companyMode === 'new' ? (state.newCompanyTitle ? state.newCompanyTitle + ' (new)' : '')
+      : '';
+    list.appendChild(summaryRow('Company', companyLabel, 'company'));
+    var a = state.address;
+    var addrParts = [a.line1, a.city, a.region, a.postalCode, a.country].filter(Boolean);
+    list.appendChild(summaryRow('Address', addrParts.join(', '), 'address'));
+    list.appendChild(summaryRow('Comments', state.comments, 'comments'));
+    body.appendChild(list);
+
+    var actions = el('div', { class: 'actions' });
+    var left = el('div', { class: 'left' }, [
+      el('button', { class: 'btn-secondary', text: 'Back', onclick: back, disabled: state.submitting ? 'true' : null }),
+    ]);
+    var submitBtn = el('button', { class: 'btn-primary', onclick: submitContact });
+    submitBtn.disabled = state.submitting;
+    if (state.submitting) {
+      submitBtn.innerHTML = '<span class="spinner"></span>Creating…';
+    } else {
+      submitBtn.textContent = 'Create contact';
+    }
+    var right = el('div', { class: 'right' }, [submitBtn]);
+    actions.appendChild(left);
+    actions.appendChild(right);
+    body.appendChild(actions);
+    return body;
+  }
+
+  function submitContact() {
+    if (state.submitting) return;
+    state.submitting = true;
+    state.error = null;
+    render();
+
+    var payload = {
+      firstName: state.firstName.trim(),
+      lastName: state.lastName.trim(),
+      phone: state.phone.trim(),
+      email: state.email.trim(),
+      comments: state.comments.trim(),
+      address: state.address,
+    };
+    if (state.companyMode === 'existing' && state.companyId) payload.companyId = state.companyId;
+    if (state.companyMode === 'new' && state.newCompanyTitle.trim()) payload.newCompanyTitle = state.newCompanyTitle.trim();
+
+    fetch('/api/contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (r) { return r.json().then(function (d) { return { status: r.status, body: d }; }); })
+      .then(function (res) {
+        state.submitting = false;
+        if (res.status >= 400) {
+          state.error = (res.body.error && res.body.error.message) || 'Something went wrong creating the contact.';
+          render();
+          return;
+        }
+        state.done = true;
+        state.result = res.body;
+        render();
+      })
+      .catch(function (e) {
+        state.submitting = false;
+        state.error = 'Network error: ' + e.message;
+        render();
+      });
+  }
+
+  function renderDone() {
+    var body = el('div', { class: 'field-body center-state' });
+    body.appendChild(el('div', { class: 'check-badge', text: '✓' }));
+    body.appendChild(el('h2', { text: 'Contact created' }));
+    var fullName = (state.firstName + ' ' + state.lastName).trim();
+    body.appendChild(el('p', { text: fullName + ' has been added to Bitrix24 CRM.' }));
+    if (state.result && state.result.addressWarning) {
+      body.appendChild(el('div', { class: 'banner', text: state.result.addressWarning }));
+    }
+    var actions = el('div', {}, []);
+    actions.style.display = 'flex';
+    actions.style.gap = '10px';
+    actions.style.marginTop = '10px';
+    if (state.result && state.result.portal && state.result.id) {
+      var openBtn = el('button', { class: 'btn-secondary', text: 'Open in Bitrix24' });
+      openBtn.addEventListener('click', function () {
+        window.top.location.href = 'https://' + state.result.portal + '/crm/contact/details/' + state.result.id + '/';
+      });
+      actions.appendChild(openBtn);
+    }
+    var againBtn = el('button', { class: 'btn-primary', text: 'Create another' });
+    againBtn.addEventListener('click', resetWizard);
+    actions.appendChild(againBtn);
+    body.appendChild(actions);
+    return body;
+  }
+
+  function resetWizard() {
+    state = {
+      step: 0, done: false,
+      firstName: '', lastName: '', phone: '', email: '',
+      companyMode: 'existing', companyId: null, companyTitle: '', newCompanyTitle: '',
+      address: { line1: '', city: '', region: '', postalCode: '', country: '' },
+      comments: '', error: null, submitting: false, result: null,
+      session: state.session,
+    };
+    render();
+  }
+
+  function renderNoSession() {
+    var body = el('div', { class: 'field-body center-state' });
+    body.appendChild(el('h2', { text: 'Sign-in required' }));
+    body.appendChild(el('p', { text: 'Sign in again or grant the app access, then reopen it from the Bitrix24 left menu.' }));
+    return body;
+  }
+
+  var renderers = {
+    name: renderName, phone: renderPhone, email: renderEmail,
+    company: renderCompany, address: renderAddress, comments: renderComments, review: renderReview,
+  };
+
+  function render() {
+    renderProgress();
+    cardEl.innerHTML = '';
+    if (state.session === false) {
+      cardEl.appendChild(renderNoSession());
+      return;
+    }
+    if (state.done) {
+      cardEl.appendChild(renderDone());
+      return;
+    }
+    var name = STEPS[state.step];
+    cardEl.appendChild(renderers[name]());
+  }
+
+  fetch('/api/session').then(function (r) { return r.json(); }).then(function (d) {
+    state.session = !!d.authenticated;
+    if (d.authenticated && d.user) {
+      sessionLine.textContent = 'Signed in as ' + d.user.name;
+      var keepAlive = setInterval(function () {
+        if (document.visibilityState === 'visible') fetch('/api/ping').catch(function () {});
+      }, 4 * 60 * 1000);
+    } else {
+      sessionLine.textContent = '';
+    }
+    render();
+  }).catch(function () {
+    state.session = false;
+    render();
+  });
+
+  render();
+
+  // Iframe auto-height, harmless when the platform wrapper is off.
+  function reportHeight() {
+    var h = document.documentElement.scrollHeight;
+    window.parent.postMessage({ type: 'vibe:resize', height: h }, '*');
+  }
+  new MutationObserver(reportHeight).observe(document.body, { childList: true, subtree: true, attributes: true });
+  window.addEventListener('resize', reportHeight);
+  setTimeout(reportHeight, 100);
+})();
 </script>
 </body>
 </html>

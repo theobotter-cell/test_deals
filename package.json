@@ -1,8 +1,8 @@
 {
-  "name": "task-comment-activity",
+  "name": "contact-wizard",
   "version": "1.0.0",
   "private": true,
-  "description": "Bitrix24 task comment activity by user (Vibecode app)",
+  "description": "Step-by-step Bitrix24 CRM contact creation wizard (Vibecode app)",
   "main": "server.js",
   "engines": {
     "node": ">=20"
