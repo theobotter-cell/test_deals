@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task Comment Activity</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #dfe3e8;
+    --text: #1f2733;
+    --muted: #6b7685;
+    --accent: #2fc6f6;
+    --accent-dark: #1a9fcb;
+    --danger: #e0533d;
+    --warn: #b8860b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; }
+  .presets { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .presets button {
+    border: 1px solid var(--border);
+    background: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .presets button.active { background: var(--accent); border-color: var(--accent-dark); color: #06323f; font-weight: 600; }
+  .date-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .date-row input[type=date] {
+    padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  }
+  #groupSearch {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  }
+  #groupList {
+    max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-top: 8px;
+  }
+  .group-row {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid #eef0f2; font-size: 13px;
+  }
+  .group-row:last-child { border-bottom: none; }
+  .group-row:hover { background: #fafbfc; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip {
+    background: #eaf9fe; border: 1px solid #bfeaf6; color: #0d6a86; border-radius: 14px;
+    padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .chip button { border: none; background: none; cursor: pointer; color: #0d6a86; font-weight: 700; padding: 0; }
+  .run-row { display: flex; align-items: center; gap: 12px; }
+  button.primary {
+    background: var(--accent-dark); color: #fff; border: none; padding: 9px 18px;
+    border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  button.secondary {
+    background: #fff; border: 1px solid var(--border); padding: 9px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;
+  }
+  .status-line { color: var(--muted); font-size: 13px; }
+  .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+  .notice.warn { background: #fff8e6; border: 1px solid #f0e0a8; color: #7a5c00; }
+  .notice.error { background: #fdecea; border: 1px solid #f5c6c0; color: #a3271b; }
+  .notice.info { background: #eaf9fe; border: 1px solid #bfeaf6; color: #0d6a86; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef0f2; font-size: 13px; }
+  th { cursor: pointer; user-select: none; color: var(--muted); font-weight: 600; }
+  th.sorted { color: var(--text); }
+  tr:hover td { background: #fafbfc; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; vertical-align: middle; margin-right: 8px; background: #ddd; }
+  .user-cell { display: flex; align-items: center; }
+  .empty-state { text-align: center; color: var(--muted); padding: 40px 0; }
+  .progress-bar { height: 6px; background: #eef0f2; border-radius: 3px; overflow: hidden; margin: 10px 0; }
+  .progress-bar-fill { height: 100%; background: var(--accent-dark); width: 0%; transition: width 0.3s; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Task Comment Activity</h1>
+  <p class="subtitle">Comment counts per user, scoped to project groups and a date range.</p>
+
+  <div class="panel">
+    <div class="field">
+      <label>Project groups</label>
+      <input id="groupSearch" type="text" placeholder="Search project groups…">
+      <div id="groupList"></div>
+      <div class="chips" id="selectedChips"></div>
+    </div>
+
+    <div class="field">
+      <label>Date range</label>
+      <div class="presets">
+        <button type="button" data-preset="1m">Last 1 month</button>
+        <button type="button" data-preset="2m">Last 2 months</button>
+      </div>
+      <div class="date-row">
+        <input type="date" id="fromDate">
+        <span>to</span>
+        <input type="date" id="toDate">
+      </div>
+    </div>
+
+    <div class="run-row">
+      <button class="primary" id="runBtn">Run report</button>
+      <span class="status-line" id="statusLine"></span>
+    </div>
+    <div class="progress-bar" id="progressBar" style="display:none"><div class="progress-bar-fill" id="progressFill"></div></div>
+  </div>
+
+  <div id="notices"></div>
+  <div class="panel" id="resultsPanel" style="display:none">
+    <table>
+      <thead>
+        <tr>
+          <th data-sort="userName">User</th>
+          <th data-sort="commentCount">Comments</th>
+          <th data-sort="taskCount">Tasks touched</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+  <div class="empty-state" id="emptyState" style="display:none">No comments found for this selection.</div>
+</div>
+
+<script>
+const state = {
+  allGroups: [],
+  selectedGroupIds: new Set(),
+  sortKey: 'commentCount',
+  sortDir: -1,
+  rows: [],
+  pollTimer: null,
+};
+
+function fmtDate(d) { return d.toISOString().slice(0, 10); }
+
+function setPreset(kind) {
+  const to = new Date();
+  const from = new Date();
+  if (kind === '1m') from.setMonth(from.getMonth() - 1);
+  if (kind === '2m') from.setMonth(from.getMonth() - 2);
+  document.getElementById('fromDate').value = fmtDate(from);
+  document.getElementById('toDate').value = fmtDate(to);
+  document.querySelectorAll('.presets button').forEach((b) => b.classList.toggle('active', b.dataset.preset === kind));
+}
+
+document.querySelectorAll('.presets button').forEach((b) => {
+  b.addEventListener('click', () => setPreset(b.dataset.preset));
+});
+document.getElementById('fromDate').addEventListener('change', () => {
+  document.querySelectorAll('.presets button').forEach((b) => b.classList.remove('active'));
+});
+document.getElementById('toDate').addEventListener('change', () => {
+  document.querySelectorAll('.presets button').forEach((b) => b.classList.remove('active'));
+});
+setPreset('1m');
+
+async function loadGroups(search) {
+  const res = await fetch('/api/workgroups' + (search ? '?search=' + encodeURIComponent(search) : ''));
+  const body = await res.json();
+  if (!res.ok) {
+    showNotice('error', 'Could not load project groups: ' + (body.error ? body.error.message : res.status));
+    return;
+  }
+  state.allGroups = body.data || [];
+  renderGroupList();
+}
+
+function renderGroupList() {
+  const list = document.getElementById('groupList');
+  list.innerHTML = '';
+  if (state.allGroups.length === 0) {
+    list.innerHTML = '<div class="group-row" style="color:#999">No matching groups</div>';
+    return;
+  }
+  for (const g of state.allGroups) {
+    const row = document.createElement('label');
+    row.className = 'group-row';
+    const checked = state.selectedGroupIds.has(g.id);
+    row.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''} data-id="${g.id}"> <span>${escapeHtml(g.name)}</span>`;
+    row.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) state.selectedGroupIds.add(g.id);
+      else state.selectedGroupIds.delete(g.id);
+      renderChips();
+    });
+    list.appendChild(row);
+  }
+}
+
+function renderChips() {
+  const chips = document.getElementById('selectedChips');
+  chips.innerHTML = '';
+  for (const id of state.selectedGroupIds) {
+    const g = state.allGroups.find((x) => x.id === id);
+    const name = g ? g.name : `Group ${id}`;
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `${escapeHtml(name)} <button type="button" aria-label="remove">×</button>`;
+    chip.querySelector('button').addEventListener('click', () => {
+      state.selectedGroupIds.delete(id);
+      renderGroupList();
+      renderChips();
+    });
+    chips.appendChild(chip);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+let searchTimer = null;
+document.getElementById('groupSearch').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadGroups(e.target.value.trim()), 250);
+});
+
+loadGroups('');
+
+function showNotice(kind, text) {
+  const notices = document.getElementById('notices');
+  const div = document.createElement('div');
+  div.className = 'notice ' + kind;
+  div.textContent = text;
+  notices.appendChild(div);
+}
+function clearNotices() { document.getElementById('notices').innerHTML = ''; }
+
+function setProgress(scanned, total) {
+  const bar = document.getElementById('progressBar');
+  const fill = document.getElementById('progressFill');
+  if (!total) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  fill.style.width = Math.min(100, Math.round((scanned / total) * 100)) + '%';
+}
+
+async function runReport() {
+  clearNotices();
+  document.getElementById('resultsPanel').style.display = 'none';
+  document.getElementById('emptyState').style.display = 'none';
+
+  if (state.selectedGroupIds.size === 0) {
+    showNotice('warn', 'Select at least one project group.');
+    return;
+  }
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  if (!from || !to) {
+    showNotice('warn', 'Pick a date range.');
+    return;
+  }
+
+  const runBtn = document.getElementById('runBtn');
+  runBtn.disabled = true;
+  document.getElementById('statusLine').textContent = 'Starting…';
+
+  const body = { groupIds: [...state.selectedGroupIds], from: from + 'T00:00:00.000Z', to: to + 'T23:59:59.999Z' };
+
+  try {
+    const res = await fetch('/api/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showNotice('error', data.error ? data.error.message : 'Failed to start report.');
+      runBtn.disabled = false;
+      return;
+    }
+    if (data.cached) {
+      renderResult(data.result);
+      runBtn.disabled = false;
+      document.getElementById('statusLine').textContent = 'From cache.';
+      return;
+    }
+    pollJob(data.jobId, body);
+  } catch (e) {
+    showNotice('error', 'Network error: ' + e.message);
+    runBtn.disabled = false;
+  }
+}
+
+function pollJob(jobId, body) {
+  const runBtn = document.getElementById('runBtn');
+  clearTimeout(state.pollTimer);
+  const tick = async () => {
+    try {
+      const res = await fetch('/api/report/' + jobId);
+      const data = await res.json();
+      if (!res.ok) {
+        showNotice('error', data.error ? data.error.message : 'Report job lost.');
+        runBtn.disabled = false;
+        setProgress(0, 0);
+        return;
+      }
+      if (data.status === 'needs-confirmation') {
+        setProgress(0, 0);
+        document.getElementById('statusLine').textContent = '';
+        const conf = data.confirmation;
+        showNotice('warn', `This selection has ${conf.taskCount} tasks (above the ${conf.cap} soft cap). Scanning may take a while.`);
+        const proceed = document.createElement('button');
+        proceed.textContent = `Scan all ${conf.taskCount} tasks anyway`;
+        proceed.className = 'secondary';
+        proceed.style.marginLeft = '8px';
+        proceed.addEventListener('click', async () => {
+          proceed.disabled = true;
+          await fetch('/api/report/' + jobId + '/confirm', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+          });
+          document.getElementById('statusLine').textContent = 'Scanning…';
+          state.pollTimer = setTimeout(tick, 800);
+        });
+        document.getElementById('notices').lastChild.appendChild(proceed);
+        return;
+      }
+      if (data.status === 'error') {
+        showNotice('error', data.error ? data.error.message : 'Report failed.');
+        runBtn.disabled = false;
+        setProgress(0, 0);
+        return;
+      }
+      if (data.status === 'done') {
+        setProgress(0, 0);
+        document.getElementById('statusLine').textContent = '';
+        runBtn.disabled = false;
+        renderResult(data.result);
+        return;
+      }
+      const label = {
+        'starting': 'Starting…',
+        'fetching-tasks': 'Finding tasks…',
+        'scanning-comments': `Scanning comments… (${data.scannedTasks || 0} of ${data.totalTasks || '?'} tasks)`,
+        'resolving-users': 'Resolving user names…',
+      }[data.status] || data.status;
+      document.getElementById('statusLine').textContent = label;
+      setProgress(data.scannedTasks || 0, data.totalTasks || 0);
+      state.pollTimer = setTimeout(tick, 800);
+    } catch (e) {
+      showNotice('error', 'Network error while polling: ' + e.message);
+      runBtn.disabled = false;
+    }
+  };
+  tick();
+}
+
+function renderResult(result) {
+  state.rows = result.rows || [];
+  const s = result.summary || {};
+  if (s.failedTasks) showNotice('warn', `${s.failedTasks} task(s) could not be read and were excluded from the counts.`);
+  if (s.truncatedTasks) showNotice('info', `${s.truncatedTasks} task(s) had more comments in range than could be fully scanned in one pass — their counts may be a lower bound.`);
+  if (state.rows.length === 0) {
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('resultsPanel').style.display = 'none';
+    return;
+  }
+  document.getElementById('resultsPanel').style.display = 'block';
+  sortAndRender();
+}
+
+function sortAndRender() {
+  const { sortKey, sortDir } = state;
+  const rows = [...state.rows].sort((a, b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (typeof av === 'string') return sortDir * av.localeCompare(bv);
+    return sortDir * (av - bv);
+  });
+  const tbody = document.getElementById('resultsBody');
+  tbody.innerHTML = '';
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    const avatar = r.avatar
+      ? `<img class="avatar" src="${r.avatar}" alt="">`
+      : `<span class="avatar"></span>`;
+    tr.innerHTML = `<td><span class="user-cell">${avatar}${escapeHtml(r.userName)}</span></td><td>${r.commentCount}</td><td>${r.taskCount}</td>`;
+    tbody.appendChild(tr);
+  }
+  document.querySelectorAll('th[data-sort]').forEach((th) => {
+    th.classList.toggle('sorted', th.dataset.sort === sortKey);
+  });
+}
+
+document.querySelectorAll('th[data-sort]').forEach((th) => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (state.sortKey === key) state.sortDir *= -1;
+    else { state.sortKey = key; state.sortDir = -1; }
+    sortAndRender();
+  });
+});
+
+document.getElementById('runBtn').addEventListener('click', runReport);
+</script>
+</body>
+</html>
