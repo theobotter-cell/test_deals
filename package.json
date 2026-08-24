@@ -13,6 +13,8 @@
   "dependencies": {
     "express": "^4.19.2",
     "multer": "^2.0.0",
-    "@kenjiuno/msgreader": "^1.28.0"
+    "@kenjiuno/msgreader": "^1.28.0",
+    "sanitize-html": "^2.13.0",
+    "iconv-lite": "^0.7.3"
   }
 }

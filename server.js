@@ -2,6 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const MsgReader = require('@kenjiuno/msgreader').default;
+const sanitizeHtml = require('sanitize-html');
+const iconv = require('iconv-lite');
 
 const VIBE_BASE_URL = process.env.VIBE_BASE_URL || 'https://vibecode.bitrix24.com/v1';
 const VIBE_API_KEY = process.env.VIBE_API_KEY || '';
@@ -130,14 +132,28 @@ function parseMsgBuffer(buffer) {
     if (!isNaN(d.getTime())) sentDate = d;
   }
 
+  // An attachment referenced by the HTML body via cid: (e.g. an embedded
+  // signature logo) is part of the message's layout, not a file the sender
+  // meant to hand over — splice it into the body as a data URI instead of
+  // listing it as a downloadable attachment.
+  // PidTagBodyHtml (string) is the "nice" property, but many writers only
+  // populate PidTagHtml (raw bytes in whatever codepage the message declares).
+  const bodyHtmlRaw = fileData.bodyHtml || decodeHtmlBytes(fileData.html, fileData.internetCodepage || fileData.messageCodepage) || null;
   const attachmentsMeta = (fileData.attachments || []).filter((a) => !a.innerMsgContent);
-  const attachments = attachmentsMeta.map((meta) => {
+  const attachments = [];
+  const inlineImages = [];
+  for (const meta of attachmentsMeta) {
     const att = reader.getAttachment(meta);
-    return {
-      fileName: att.fileName || meta.fileNameShort || meta.fileName || 'attachment',
-      content: Buffer.from(att.content),
-    };
-  });
+    const fileName = att.fileName || meta.fileNameShort || meta.fileName || 'attachment';
+    const content = Buffer.from(att.content);
+    const cid = meta.pidContentId;
+    const isInline = !!(cid && bodyHtmlRaw && bodyHtmlRaw.includes(cid));
+    if (isInline) {
+      inlineImages.push({ cid, mimeType: meta.attachMimeTag || guessMimeType(fileName), content });
+    } else {
+      attachments.push({ fileName, content });
+    }
+  }
 
   return {
     subject: fileData.subject || '(no subject)',
@@ -146,9 +162,36 @@ function parseMsgBuffer(buffer) {
     toDisplay,
     ccDisplay,
     sentDate,
-    body: fileData.body || '',
+    bodyText: fileData.body || '',
+    bodyHtml: bodyHtmlRaw,
+    inlineImages,
     attachments,
   };
+}
+
+// Windows codepage ID -> iconv-lite encoding name, for decoding PidTagHtml
+// (raw bytes) when the message has no PidTagBodyHtml string property.
+const CODEPAGE_MAP = {
+  1200: 'utf-16le', 1201: 'utf-16be', 65001: 'utf-8', 20127: 'ascii',
+  1250: 'windows-1250', 1251: 'windows-1251', 1252: 'windows-1252', 1253: 'windows-1253',
+  1254: 'windows-1254', 1255: 'windows-1255', 1256: 'windows-1256', 1257: 'windows-1257', 1258: 'windows-1258',
+  28591: 'iso-8859-1', 932: 'shiftjis', 936: 'gbk', 949: 'euc-kr', 950: 'big5',
+};
+
+function decodeHtmlBytes(bytes, codepage) {
+  if (!bytes || !bytes.length) return null;
+  const encoding = CODEPAGE_MAP[codepage] || 'utf-8';
+  try {
+    return iconv.decode(Buffer.from(bytes), encoding);
+  } catch (e) {
+    return Buffer.from(bytes).toString('utf-8');
+  }
+}
+
+function guessMimeType(fileName) {
+  const ext = (fileName.match(/\.([a-z0-9]+)$/i) || [])[1] || '';
+  const map = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml', webp: 'image/webp' };
+  return map[ext.toLowerCase()] || 'application/octet-stream';
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -247,17 +290,76 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// The .msg body HTML is untrusted content from an uploaded file, about to be
+// rendered as real HTML inside an authenticated Bitrix24 page — sanitize it
+// like any other untrusted HTML sink. No scripts, no event handlers, no
+// external stylesheets; only tags/attributes/CSS properties an email
+// signature or formatted message plausibly needs.
+const SANITIZE_OPTIONS = {
+  allowedTags: [
+    'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 's', 'a', 'img',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th',
+    'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr', 'pre', 'font',
+  ],
+  allowedAttributes: {
+    a: ['href', 'title'],
+    img: ['src', 'alt', 'width', 'height'],
+    td: ['colspan', 'rowspan', 'align', 'valign'],
+    th: ['colspan', 'rowspan', 'align', 'valign'],
+    table: ['border', 'cellpadding', 'cellspacing', 'width'],
+    font: ['color', 'size', 'face'],
+    '*': ['style'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: { img: ['data', 'http', 'https', 'cid'] },
+  allowedStyles: {
+    '*': {
+      color: [/^#[0-9a-f]{3,8}$/i, /^rgb\(.*\)$/i, /^[a-z]+$/i],
+      'background-color': [/^#[0-9a-f]{3,8}$/i, /^rgb\(.*\)$/i, /^[a-z]+$/i],
+      'font-weight': [/^(normal|bold|[1-9]00)$/],
+      'font-style': [/^(normal|italic)$/],
+      'font-size': [/^\d+(\.\d+)?(px|pt|em|%)$/],
+      'font-family': [/^[a-z0-9\s,'"-]+$/i],
+      'text-align': [/^(left|right|center|justify)$/],
+      'text-decoration': [/^(none|underline|line-through)$/],
+    },
+  },
+  transformTags: { a: sanitizeHtml.simpleTransform('a', { target: '_blank', rel: 'noopener noreferrer' }) },
+  nonTextTags: ['script', 'style', 'textarea', 'title', 'noscript', 'iframe', 'object', 'embed', 'form'],
+};
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Splices embedded images (signature logos, etc.) back into the sanitized
+// HTML as data URIs, in place of the cid: reference the original message used.
+function inlineDataUris(html, inlineImages) {
+  let result = html;
+  for (const img of inlineImages) {
+    if (!img.cid) continue;
+    const dataUri = `data:${img.mimeType};base64,${img.content.toString('base64')}`;
+    result = result.replace(new RegExp(`cid:${escapeRegExp(img.cid)}`, 'gi'), dataUri);
+  }
+  return result;
+}
+
 function buildDescription(email, uploadedFiles, attachmentsTotal) {
   const parts = [];
   parts.push(`<b>From:</b> ${escapeHtml(email.fromDisplay)}<br>`);
   parts.push(`<b>To:</b> ${escapeHtml(email.toDisplay)}<br>`);
   if (email.ccDisplay) parts.push(`<b>Cc:</b> ${escapeHtml(email.ccDisplay)}<br>`);
   parts.push(`<b>Date:</b> ${escapeHtml(email.sentDate ? email.sentDate.toUTCString() : 'Unknown')}<br>`);
-  parts.push('<br>');
+  parts.push('<hr style="margin:10px 0;border:none;border-top:1px solid #ddd;">');
 
-  const bodyText = email.body && email.body.trim() ? email.body.trim() : '(no body text found in this email)';
-  // Preserve the email's own line breaks; everything else is plain escaped text.
-  parts.push(escapeHtml(bodyText).replace(/\r\n|\r|\n/g, '<br>'));
+  if (email.bodyHtml) {
+    const sanitized = sanitizeHtml(email.bodyHtml, SANITIZE_OPTIONS);
+    parts.push(inlineDataUris(sanitized, email.inlineImages));
+  } else {
+    const bodyText = email.bodyText && email.bodyText.trim() ? email.bodyText.trim() : '(no body text found in this email)';
+    // Preserve the email's own line breaks; everything else is plain escaped text.
+    parts.push(escapeHtml(bodyText).replace(/\r\n|\r|\n/g, '<br>'));
+  }
 
   if (attachmentsTotal > 0) {
     parts.push('<br><br>');
