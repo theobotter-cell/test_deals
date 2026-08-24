@@ -4,7 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Add Email from .msg</title>
-<script src="//api.bitrix24.com/api/v1/"></script>
 <style>
   :root {
     color-scheme: light;
@@ -189,12 +188,19 @@
       });
   });
 
-  if (window.BX24) {
-    try {
-      BX24.init(function () {
-        BX24.fitWindow();
-      });
-    } catch (e) { /* BX24 not available in this context — fine, not required */ }
+  // Report our content height to the platform so it can grow the placement
+  // iframe to fit (otherwise Bitrix24 clips it at a fixed height). The
+  // native BX24 SDK doesn't work here — the app is opened through the
+  // Vibecode handler redirect, not a same-origin Bitrix24 frame.
+  function reportHeight() {
+    if (window.parent === window) return;
+    window.parent.postMessage({ type: 'vibe:resize', height: document.documentElement.scrollHeight }, '*');
+  }
+  reportHeight();
+  if (window.ResizeObserver) {
+    new ResizeObserver(reportHeight).observe(document.body);
+  } else {
+    window.addEventListener('resize', reportHeight);
   }
 })();
 </script>

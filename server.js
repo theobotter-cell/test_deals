@@ -112,7 +112,11 @@ function parseMsgBuffer(buffer) {
   const toDisplay = (to.length ? to : recipients).map(formatRecipient).join('; ') || '(none found)';
   const ccDisplay = cc.map(formatRecipient).join('; ');
 
-  const fromEmail = fileData.senderEmail || null;
+  // Internal/Exchange-originated mail often stores the sender as an X.500
+  // directory name (e.g. "/O=EXCHANGELABS/OU=.../CN=RECIPIENTS/CN=...")
+  // rather than an SMTP address. Prefer the resolved SMTP properties and
+  // never surface a raw directory name to the user or to Bitrix24.
+  const fromEmail = pickEmail(fileData.senderSmtpAddress, fileData.senderEmail, fileData.sentRepresentingSmtpAddress);
   const fromName = fileData.senderName || null;
   const fromDisplay = fromName && fromEmail ? `${fromName} <${fromEmail}>` : (fromEmail || fromName || 'Unknown sender');
 
@@ -147,9 +151,21 @@ function parseMsgBuffer(buffer) {
   };
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Returns the first candidate that actually looks like an email address —
+// filters out X.500 directory names ("/O=EXCHANGELABS/...") and other junk.
+function pickEmail(...candidates) {
+  for (const c of candidates) {
+    if (c && EMAIL_RE.test(c)) return c;
+  }
+  return null;
+}
+
 function formatRecipient(r) {
-  if (r.name && r.email && r.name !== r.email) return `${r.name} <${r.email}>`;
-  return r.email || r.name || 'unknown';
+  const email = pickEmail(r.smtpAddress, r.email);
+  if (r.name && email && r.name !== email) return `${r.name} <${email}>`;
+  return email || r.name || 'unknown';
 }
 
 function bufferToArrayBuffer(buffer) {
@@ -222,33 +238,41 @@ async function uploadAttachmentsToDisk(dealId, attachments, userAuth) {
 }
 
 // ---------------------------------------------------------------------------
-// Build the timeline activity description (BBCode, as used by the Bitrix24
-// timeline renderer — same syntax the /v1/timeline-logs examples use).
+// Build the timeline activity description. descriptionType: 3 on a CRM
+// activity is real HTML (not BBCode) — the timeline renders it verbatim, so
+// line breaks need <br> and every piece of untrusted text (headers, body,
+// file names) must be escaped.
 // ---------------------------------------------------------------------------
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function buildDescription(email, uploadedFiles, attachmentsTotal) {
-  const lines = [];
-  lines.push(`From: ${email.fromDisplay}`);
-  lines.push(`To: ${email.toDisplay}`);
-  if (email.ccDisplay) lines.push(`Cc: ${email.ccDisplay}`);
-  lines.push(`Date: ${email.sentDate ? email.sentDate.toUTCString() : 'Unknown'}`);
-  lines.push('');
-  lines.push(email.body && email.body.trim() ? email.body.trim() : '(no body text found in this email)');
+  const parts = [];
+  parts.push(`<b>From:</b> ${escapeHtml(email.fromDisplay)}<br>`);
+  parts.push(`<b>To:</b> ${escapeHtml(email.toDisplay)}<br>`);
+  if (email.ccDisplay) parts.push(`<b>Cc:</b> ${escapeHtml(email.ccDisplay)}<br>`);
+  parts.push(`<b>Date:</b> ${escapeHtml(email.sentDate ? email.sentDate.toUTCString() : 'Unknown')}<br>`);
+  parts.push('<br>');
+
+  const bodyText = email.body && email.body.trim() ? email.body.trim() : '(no body text found in this email)';
+  // Preserve the email's own line breaks; everything else is plain escaped text.
+  parts.push(escapeHtml(bodyText).replace(/\r\n|\r|\n/g, '<br>'));
 
   if (attachmentsTotal > 0) {
-    lines.push('');
-    lines.push(`[b]Attachments (${attachmentsTotal}):[/b]`);
-    if (uploadedFiles.length) {
-      // detailUrl can contain literal spaces (folder/file names in the path);
-      // encode them so the BBCode [url=...] tag doesn't terminate early.
-      for (const f of uploadedFiles) lines.push(`[url=${encodeURI(f.url)}]${f.fileName}[/url]`);
+    parts.push('<br><br>');
+    parts.push(`<b>Attachments (${attachmentsTotal}):</b><br>`);
+    for (const f of uploadedFiles) {
+      // detailUrl can contain literal spaces (folder/file names in the path).
+      parts.push(`<a href="${escapeHtml(encodeURI(f.url))}">${escapeHtml(f.fileName)}</a><br>`);
     }
     const failed = attachmentsTotal - uploadedFiles.length;
     if (failed > 0) {
-      lines.push(`(${failed} attachment${failed === 1 ? '' : 's'} could not be uploaded to Disk)`);
+      parts.push(`(${failed} attachment${failed === 1 ? '' : 's'} could not be uploaded to Disk)<br>`);
     }
   }
 
-  return lines.join('\n');
+  return parts.join('');
 }
 
 // ---------------------------------------------------------------------------
