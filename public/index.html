@@ -349,6 +349,17 @@
   var transcript = '';
   var isRecording = false;
 
+  // Primary transcription path: the browser's own Web Speech API. It runs
+  // entirely client-side (Chrome/Safari), so it has no dependency on the
+  // Vibecode Whisper endpoint. Browsers without it (e.g. Firefox) fall back
+  // to MediaRecorder + server-side /api/transcribe (Whisper).
+  var SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var webSpeechSupported = !!SpeechRecognitionCtor;
+  var recognition = null;
+  var webSpeechTranscript = '';
+  var webSpeechStopRequested = false;
+  var webSpeechAborted = false;
+
   function pickMimeType() {
     var candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/ogg'];
     if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
@@ -393,6 +404,107 @@
   });
 
   function startRecording() {
+    if (webSpeechSupported) {
+      startWebSpeechRecording();
+    } else {
+      startMediaRecorderRecording();
+    }
+  }
+
+  function stopRecording() {
+    setState('processing-transcribe');
+    if (webSpeechSupported) {
+      stopWebSpeechRecording();
+    } else {
+      stopMediaRecorderRecording();
+    }
+    stopTimer();
+    isRecording = false;
+    recordBtn.classList.remove('recording');
+    recordBtn.innerHTML = 'Aufnahme<br>starten';
+  }
+
+  // ---- Web Speech API path (primary) ----
+  function startWebSpeechRecording() {
+    webSpeechTranscript = '';
+    webSpeechStopRequested = false;
+    webSpeechAborted = false;
+    recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'de-DE';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = function (event) {
+      for (var i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          var piece = event.results[i][0].transcript.trim();
+          if (piece) webSpeechTranscript += (webSpeechTranscript ? ' ' : '') + piece;
+        }
+      }
+    };
+    recognition.onerror = function (event) {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        webSpeechStopRequested = true;
+        webSpeechAborted = true;
+        isRecording = false;
+        stopTimer();
+        recordBtn.classList.remove('recording');
+        recordBtn.innerHTML = 'Aufnahme<br>starten';
+        showError('Kein Mikrofonzugriff', 'Bitte erlaube den Mikrofonzugriff in den Browsereinstellungen und versuche es erneut.');
+      }
+      // Other errors (e.g. transient 'no-speech' or 'network') are handled
+      // by onend below: it restarts recognition while still recording, or
+      // finalizes the transcript once the user has tapped stop.
+    };
+    recognition.onend = function () {
+      if (webSpeechAborted) {
+        webSpeechAborted = false;
+        return;
+      }
+      if (!webSpeechStopRequested && isRecording) {
+        try {
+          recognition.start();
+        } catch (e) {
+          // ignore transient restart races
+        }
+      } else {
+        finishWebSpeechRecording();
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch (e) {
+      showError('Aufnahme fehlgeschlagen', 'Die Spracherkennung konnte nicht gestartet werden.');
+      return;
+    }
+    isRecording = true;
+    recordBtn.classList.add('recording');
+    recordBtn.innerHTML = 'Aufnahme<br>stoppen';
+    startTimer();
+  }
+
+  function stopWebSpeechRecording() {
+    webSpeechStopRequested = true;
+    if (recognition) {
+      try { recognition.stop(); } catch (e) {}
+    }
+  }
+
+  function finishWebSpeechRecording() {
+    var text = webSpeechTranscript.trim();
+    if (text.length < 3) {
+      setState('ready');
+      showError('Keine Sprache erkannt', 'Es wurde keine Aufnahme erkannt. Bitte erneut versuchen und deutlich sprechen.');
+      return;
+    }
+    transcript = text;
+    runExtraction();
+  }
+
+  // ---- MediaRecorder + server-side Whisper path (fallback) ----
+  function startMediaRecorderRecording() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
       showError('Aufnahme nicht unterstützt', 'Dieser Browser unterstützt keine Sprachaufnahme. Bitte Chrome oder Safari (aktuelle Version) verwenden.');
       return;
@@ -429,19 +541,14 @@
     }
   }
 
-  function stopRecording() {
+  function stopMediaRecorderRecording() {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       mediaRecorder.stop();
     }
     stopStream();
-    stopTimer();
-    isRecording = false;
-    recordBtn.classList.remove('recording');
-    recordBtn.innerHTML = 'Aufnahme<br>starten';
   }
 
   function onRecordingStopped() {
-    setState('processing-transcribe');
     var mimeType = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
     var blob = new Blob(chunks, { type: mimeType });
 
