@@ -1,8 +1,8 @@
 {
-  "name": "task-comment-activity",
+  "name": "outlook-msg-bitrix-importer",
   "version": "1.0.0",
   "private": true,
-  "description": "Bitrix24 task comment activity by user (Vibecode app)",
+  "description": "Bitrix24 CRM app: upload an Outlook .msg file on a deal and log it to the deal's timeline as an Email activity (Vibecode app)",
   "main": "server.js",
   "engines": {
     "node": ">=20"
@@ -11,6 +11,8 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "multer": "^2.0.0",
+    "@kenjiuno/msgreader": "^1.28.0"
   }
 }
